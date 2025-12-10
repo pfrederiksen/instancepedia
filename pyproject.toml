@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "instancepedia"
+version = "0.1.0"
+description = "EC2 Instance Type Browser TUI"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "textual>=0.40.0",
+    "boto3>=1.28.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+]
+
+[project.scripts]
+instancepedia = "src.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+

@@ -1,0 +1,155 @@
+"""Instance type detail screen"""
+
+from textual.app import ComposeResult
+from textual.containers import Container, Vertical, ScrollableContainer
+from textual.widgets import Static, Label
+from textual.screen import Screen
+from textual import events
+
+from src.models.instance_type import InstanceType
+from src.services.free_tier_service import FreeTierService
+from src.debug import DebugLog, DebugPane
+from textual.containers import Vertical
+
+
+class InstanceDetail(Screen):
+    """Screen for displaying instance type details"""
+
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("escape", "back", "Back"),
+    ]
+
+    def __init__(self, instance_type: InstanceType):
+        super().__init__()
+        DebugLog.log(f"InstanceDetail.__init__() called for: {instance_type.instance_type}")
+        self.instance_type = instance_type
+        self.free_tier_service = FreeTierService()
+
+    def compose(self) -> ComposeResult:
+        DebugLog.log("InstanceDetail.compose() called")
+        with Vertical():
+            with Container(id="detail-container"):
+                yield Static("Instance Type Details", id="header")
+                with ScrollableContainer(id="detail-content"):
+                    yield Static("Loading...", id="detail-text")  # Show something immediately
+                yield Static(
+                    "Esc: Back | Q: Quit",
+                    id="help-text"
+                )
+            if DebugLog.is_enabled():
+                yield DebugPane()
+        DebugLog.log("InstanceDetail.compose() completed")
+
+    def on_mount(self) -> None:
+        """Render detail content when screen is mounted"""
+        DebugLog.log("InstanceDetail.on_mount() called")
+        # Force immediate refresh to show the screen
+        self.refresh()
+        # Use set_timer to render details after a brief delay to ensure widgets are ready
+        self.set_timer(0.2, self._render_details)
+
+    def _render_details(self) -> None:
+        """Render the detailed information"""
+        DebugLog.log("InstanceDetail._render_details() called")
+        try:
+            inst = self.instance_type
+            DebugLog.log(f"Rendering details for: {inst.instance_type}")
+            is_free_tier = self.free_tier_service.is_eligible(inst.instance_type)
+            free_tier_info = self.free_tier_service.get_info()
+
+            lines = []
+            lines.append(f"Instance Type: {inst.instance_type}")
+            lines.append("")
+
+            # Free tier section
+            if is_free_tier:
+                lines.append("━" * 60)
+                lines.append("")
+                lines.append("🆓 AWS FREE TIER ELIGIBLE")
+                lines.append(f"  • {free_tier_info['hours_per_month']} hours/month for {free_tier_info['duration_months']} months (new accounts)")
+                lines.append("  • Available in most regions")
+                lines.append(f"  • Includes {', '.join(free_tier_info['instance_types'])}")
+                lines.append("")
+                lines.append("━" * 60)
+                lines.append("")
+
+            # Compute
+            lines.append("Compute")
+            lines.append(f"  • vCPU:              {inst.vcpu_info.default_vcpus}")
+            if inst.vcpu_info.default_cores:
+                lines.append(f"  • Default Cores:     {inst.vcpu_info.default_cores}")
+            if inst.vcpu_info.default_threads_per_core:
+                lines.append(f"  • Threads per Core:  {inst.vcpu_info.default_threads_per_core}")
+            if inst.processor_info.sustained_clock_speed_in_ghz:
+                lines.append(f"  • Sustained Clock:   {inst.processor_info.sustained_clock_speed_in_ghz} GHz")
+            lines.append("")
+
+            # Memory
+            lines.append("Memory")
+            memory_gb = inst.memory_info.size_in_gb
+            lines.append(f"  • Total Memory:      {memory_gb:.2f} GB ({inst.memory_info.size_in_mib} MiB)")
+            lines.append("")
+
+            # Network
+            lines.append("Network")
+            lines.append(f"  • Performance:       {inst.network_info.network_performance}")
+            lines.append(f"  • Max Interfaces:    {inst.network_info.maximum_network_interfaces}")
+            lines.append(f"  • Max IPv4 per ENI:  {inst.network_info.maximum_ipv4_addresses_per_interface}")
+            lines.append(f"  • Max IPv6 per ENI:  {inst.network_info.maximum_ipv6_addresses_per_interface}")
+            lines.append("")
+
+            # Storage
+            lines.append("Storage")
+            lines.append(f"  • EBS Optimized:     {inst.ebs_info.ebs_optimized_support.title()}")
+            if inst.ebs_info.ebs_optimized_info:
+                ebs_info = inst.ebs_info.ebs_optimized_info
+                if "MaximumBandwidthMbps" in ebs_info:
+                    lines.append(f"  • EBS Bandwidth:     Up to {ebs_info['MaximumBandwidthMbps']} Mbps")
+                if "MaximumThroughputMBps" in ebs_info:
+                    lines.append(f"  • EBS Throughput:    Up to {ebs_info['MaximumThroughputMBps']} MB/s")
+            if inst.instance_storage_info:
+                if inst.instance_storage_info.total_size_in_gb:
+                    lines.append(f"  • Instance Storage:  {inst.instance_storage_info.total_size_in_gb} GB")
+                if inst.instance_storage_info.nvme_support:
+                    lines.append(f"  • NVMe Support:      {inst.instance_storage_info.nvme_support}")
+            else:
+                lines.append("  • Instance Storage:  Not Available")
+            lines.append("")
+
+            # Architecture & Virtualization
+            lines.append("Architecture & Virtualization")
+            arch_str = ", ".join(inst.processor_info.supported_architectures)
+            lines.append(f"  • Supported Architectures:  {arch_str}")
+            lines.append("")
+
+            # Additional Info
+            lines.append("Additional Info")
+            lines.append(f"  • Burstable Performance:     {'Yes' if inst.burstable_performance_supported else 'No'}")
+            lines.append(f"  • Current Generation:        {'Yes' if inst.current_generation else 'No'}")
+            lines.append(f"  • Hibernation Supported:      {'Yes' if inst.hibernation_supported else 'No'}")
+
+            detail_text = self.query_one("#detail-text", Static)
+            detail_text.update("\n".join(lines))
+            DebugLog.log("InstanceDetail content rendered successfully")
+            # Force refresh to ensure content is visible
+            self.refresh()
+        except Exception as e:
+            DebugLog.log(f"ERROR rendering details: {e}")
+            import traceback
+            DebugLog.log(f"Traceback: {traceback.format_exc()}")
+            # Try to show error message
+            try:
+                detail_text = self.query_one("#detail-text", Static)
+                detail_text.update(f"Error loading details: {str(e)}")
+            except:
+                pass
+
+    def action_back(self) -> None:
+        """Go back to instance list"""
+        self.dismiss(None)
+
+    def action_quit(self) -> None:
+        """Quit application"""
+        self.app.exit()
+
