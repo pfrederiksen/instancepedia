@@ -74,6 +74,61 @@ You can configure the application using environment variables:
 - `INSTANCEPEDIA_AWS_REGION` - Default AWS region (default: us-east-1)
 - `INSTANCEPEDIA_AWS_PROFILE` - AWS profile to use
 
+## IAM Permissions
+
+Instancepedia requires minimal AWS permissions to function. The application only needs read-only access to EC2 instance type information.
+
+### Required IAM Policy
+
+Create an IAM policy with the following JSON:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeRegions",
+                "ec2:DescribeInstanceTypes"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+```
+
+### Setting Up IAM Permissions
+
+1. **Create the policy** (using AWS CLI):
+   ```bash
+   aws iam create-policy \
+     --policy-name InstancepediaReadOnly \
+     --policy-document file://instancepedia-policy.json
+   ```
+
+2. **Attach the policy to a user**:
+   ```bash
+   aws iam attach-user-policy \
+     --user-name YOUR_USERNAME \
+     --policy-arn arn:aws:iam::ACCOUNT_ID:policy/InstancepediaReadOnly
+   ```
+
+3. **Or attach to a role** (for EC2 instances, Lambda, etc.):
+   ```bash
+   aws iam attach-role-policy \
+     --role-name YOUR_ROLE_NAME \
+     --policy-arn arn:aws:iam::ACCOUNT_ID:policy/InstancepediaReadOnly
+   ```
+
+**Note**: Replace `YOUR_USERNAME`, `YOUR_ROLE_NAME`, and `ACCOUNT_ID` with your actual values.
+
+Alternatively, you can use the AWS Console:
+1. Go to IAM → Policies → Create policy
+2. Select JSON tab and paste the policy above
+3. Name it `InstancepediaReadOnly` and create it
+4. Attach it to your user or role as needed
+
 ## Requirements
 
 - Python 3.8+
