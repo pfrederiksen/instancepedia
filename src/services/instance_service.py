@@ -3,8 +3,9 @@
 from typing import List, Optional
 from botocore.exceptions import ClientError, BotoCoreError
 
-from src.models.instance_type import InstanceType
+from src.models.instance_type import InstanceType, PricingInfo
 from src.services.aws_client import AWSClient
+from src.services.pricing_service import PricingService
 
 
 class InstanceService:
@@ -19,9 +20,12 @@ class InstanceService:
         """
         self.aws_client = aws_client
 
-    def get_instance_types(self) -> List[InstanceType]:
+    def get_instance_types(self, fetch_pricing: bool = False) -> List[InstanceType]:
         """
         Fetch all available instance types for the region
+        
+        Args:
+            fetch_pricing: If True, fetch pricing information for each instance type (slower)
         
         Returns:
             List of InstanceType objects
@@ -48,7 +52,26 @@ class InstanceService:
                 if not next_token:
                     break
 
-            return sorted(instance_types, key=lambda x: x.instance_type)
+            instance_types = sorted(instance_types, key=lambda x: x.instance_type)
+            
+            # Fetch pricing if requested
+            if fetch_pricing:
+                pricing_service = PricingService(self.aws_client)
+                for instance_type in instance_types:
+                    try:
+                        pricing_data = pricing_service.get_pricing(
+                            instance_type.instance_type,
+                            self.aws_client.region
+                        )
+                        instance_type.pricing = PricingInfo(
+                            on_demand_price=pricing_data.get('on_demand'),
+                            spot_price=pricing_data.get('spot')
+                        )
+                    except Exception:
+                        # If pricing fails, continue without pricing info
+                        pass
+
+            return instance_types
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
@@ -58,4 +81,25 @@ class InstanceService:
             raise Exception(f"AWS connection error: {str(e)}")
         except Exception as e:
             raise Exception(f"Failed to fetch instance types: {str(e)}")
+    
+    def update_instance_pricing(self, instance_type: InstanceType) -> None:
+        """
+        Update pricing information for a single instance type
+        
+        Args:
+            instance_type: InstanceType to update pricing for
+        """
+        try:
+            pricing_service = PricingService(self.aws_client)
+            pricing_data = pricing_service.get_pricing(
+                instance_type.instance_type,
+                self.aws_client.region
+            )
+            instance_type.pricing = PricingInfo(
+                on_demand_price=pricing_data.get('on_demand'),
+                spot_price=pricing_data.get('spot')
+            )
+        except Exception:
+            # If pricing fails, set to None
+            instance_type.pricing = None
 

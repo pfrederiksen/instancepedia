@@ -128,6 +128,48 @@ class InstanceDetail(Screen):
             lines.append(f"  • Burstable Performance:     {'Yes' if inst.burstable_performance_supported else 'No'}")
             lines.append(f"  • Current Generation:        {'Yes' if inst.current_generation else 'No'}")
             lines.append(f"  • Hibernation Supported:      {'Yes' if inst.hibernation_supported else 'No'}")
+            lines.append("")
+
+            # Pricing section
+            lines.append("━" * 60)
+            lines.append("")
+            lines.append("Pricing")
+            lines.append("")
+            
+            if inst.pricing:
+                if inst.pricing.on_demand_price:
+                    lines.append(f"  • On-Demand Price:        ${inst.pricing.on_demand_price:.4f} per hour")
+                    
+                    # Cost calculator
+                    monthly_cost = inst.pricing.calculate_monthly_cost()
+                    annual_cost = inst.pricing.calculate_annual_cost()
+                    
+                    if monthly_cost:
+                        lines.append(f"  • Monthly Cost (730 hrs): ${monthly_cost:.2f}")
+                    if annual_cost:
+                        lines.append(f"  • Annual Cost (8,760 hrs): ${annual_cost:.2f}")
+                    
+                    # Cost per vCPU and per GB RAM
+                    cost_per_vcpu = inst.pricing.on_demand_price / inst.vcpu_info.default_vcpus if inst.vcpu_info.default_vcpus > 0 else None
+                    cost_per_gb = inst.pricing.on_demand_price / inst.memory_info.size_in_gb if inst.memory_info.size_in_gb > 0 else None
+                    
+                    if cost_per_vcpu:
+                        lines.append(f"  • Cost per vCPU/hour:     ${cost_per_vcpu:.6f}")
+                    if cost_per_gb:
+                        lines.append(f"  • Cost per GB RAM/hour:   ${cost_per_gb:.6f}")
+                else:
+                    lines.append("  • On-Demand Price:        Not available")
+                
+                if inst.pricing.spot_price:
+                    lines.append(f"  • Current Spot Price:     ${inst.pricing.spot_price:.4f} per hour")
+                    if inst.pricing.on_demand_price:
+                        savings = ((inst.pricing.on_demand_price - inst.pricing.spot_price) / inst.pricing.on_demand_price) * 100
+                        lines.append(f"  • Spot Savings:           {savings:.1f}% off on-demand")
+                else:
+                    lines.append("  • Current Spot Price:     Not available")
+            else:
+                lines.append("  • Pricing information:     Not loaded")
+                lines.append("  • (Pricing is fetched in the background)")
 
             detail_text = self.query_one("#detail-text", Static)
             detail_text.update("\n".join(lines))

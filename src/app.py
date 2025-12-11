@@ -1,6 +1,7 @@
 """Main application class"""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from textual.app import App, ComposeResult
 from textual.screen import Screen
 from textual.containers import Container, Vertical
@@ -15,6 +16,7 @@ from src.ui.instance_list import InstanceList
 from src.ui.instance_detail import InstanceDetail
 from src.services.aws_client import AWSClient
 from src.services.instance_service import InstanceService
+from src.services.pricing_service import PricingService
 from src.config.settings import Settings
 
 
@@ -85,6 +87,12 @@ class InstancepediaApp(App):
         color: $primary;
     }
     
+    #pricing-status-header {
+        text-align: center;
+        margin: 1;
+        text-style: bold;
+    }
+    
     #search-container {
         margin: 1;
         height: 3;
@@ -138,6 +146,8 @@ class InstancepediaApp(App):
         self.current_region: str | None = None
         self.instance_types = []
         self.debug_mode = debug
+        self._pricing_worker = None
+        self._shutting_down = False
         if debug:
             DebugLog.enable()
 
@@ -291,8 +301,12 @@ class InstancepediaApp(App):
                 DebugLog.log(f"Error popping screens: {pop_err}")
             
             DebugLog.log("Pushing instance list screen")
-            self.push_screen(InstanceList(self.instance_types, self.current_region))
+            instance_list = InstanceList(self.instance_types, self.current_region)
+            self.push_screen(instance_list)
             DebugLog.log("Instance list screen pushed successfully")
+            
+            # Start fetching pricing in the background
+            self._fetch_pricing_background(instance_list)
         else:
             DebugLog.log("No instance types found")
             try:
@@ -301,6 +315,240 @@ class InstancepediaApp(App):
             except:
                 pass
             self.push_screen(ErrorScreen("No instance types found for this region."))
+    
+    def _fetch_pricing_background(self, instance_list: InstanceList) -> None:
+        """Fetch pricing information in the background"""
+        DebugLog.log("_fetch_pricing_background called")
+        def pricing_worker():
+            """Worker function to fetch pricing"""
+            DebugLog.log("pricing_worker started")
+            try:
+                # Check if we're shutting down before starting
+                if self._shutting_down:
+                    DebugLog.log("Pricing worker cancelled - app shutting down")
+                    return
+                
+                # Mark pricing as loading
+                def mark_loading():
+                    try:
+                        instance_list.mark_pricing_loading(True)
+                    except Exception as e:
+                        DebugLog.log(f"Error marking pricing as loading: {e}")
+                self.call_from_thread(mark_loading)
+                DebugLog.log("Marked pricing as loading")
+                
+                DebugLog.log(f"Starting pricing fetch for region: {self.current_region}")
+                aws_client = AWSClient(self.current_region, self.settings.aws_profile)
+                
+                # Test pricing client creation
+                try:
+                    pricing_client = aws_client.pricing_client
+                    DebugLog.log("Pricing client created successfully")
+                except Exception as e:
+                    DebugLog.log(f"Failed to create pricing client: {e}")
+                    import traceback
+                    DebugLog.log(f"Traceback: {traceback.format_exc()}")
+                    # Mark as done and return - can't fetch pricing without client
+                    self.call_from_thread(lambda: instance_list.mark_pricing_loading(False))
+                    return
+                
+                try:
+                    pricing_service = PricingService(aws_client)
+                    DebugLog.log("Pricing service created successfully")
+                except Exception as e:
+                    DebugLog.log(f"Failed to create pricing service: {e}")
+                    self.call_from_thread(lambda: instance_list.mark_pricing_loading(False))
+                    return
+                
+                total_to_fetch = len(self.instance_types)
+                DebugLog.log(f"Fetching pricing for {total_to_fetch} instance types using parallel requests")
+                
+                # First, fetch all spot prices in batch (much faster)
+                instance_type_names = [inst.instance_type for inst in self.instance_types]
+                DebugLog.log("Fetching spot prices in batch...")
+                spot_prices = pricing_service.get_spot_prices_batch(instance_type_names, self.current_region)
+                DebugLog.log(f"Fetched spot prices for {len([p for p in spot_prices.values() if p is not None])} instance types")
+                
+                # Create a function to fetch on-demand price for a single instance type
+                def fetch_on_demand_price(instance_type_obj):
+                    """Fetch on-demand price for a single instance type with retry logic"""
+                    if self._shutting_down:
+                        return None, None
+                    try:
+                        # get_on_demand_price already has retry logic built in
+                        on_demand = pricing_service.get_on_demand_price(
+                            instance_type_obj.instance_type,
+                            self.current_region,
+                            max_retries=5  # More retries for parallel requests
+                        )
+                        return instance_type_obj.instance_type, on_demand
+                    except Exception as e:
+                        DebugLog.log(f"Error fetching on-demand price for {instance_type_obj.instance_type}: {e}")
+                        return instance_type_obj.instance_type, None
+                
+                # Fetch on-demand prices in parallel using thread pool
+                # Use a reasonable concurrency limit to avoid rate limiting
+                max_workers = 10  # Reduced to avoid rate limits
+                completed_count = 0
+                failed_instances = []  # Track failed instances for retry
+                
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    # Submit all on-demand price fetches
+                    future_to_instance = {
+                        executor.submit(fetch_on_demand_price, inst): inst
+                        for inst in self.instance_types
+                    }
+                    
+                    # Process completed futures
+                    for future in as_completed(future_to_instance):
+                        if self._shutting_down:
+                            DebugLog.log("Pricing worker cancelled - app shutting down")
+                            # Cancel remaining futures
+                            for f in future_to_instance:
+                                f.cancel()
+                            break
+                        
+                        try:
+                            instance_type_name, on_demand_price = future.result()
+                            # Find the instance type object and update it
+                            instance_type = next(
+                                (inst for inst in self.instance_types 
+                                 if inst.instance_type == instance_type_name),
+                                None
+                            )
+                            
+                            if instance_type:
+                                from src.models.instance_type import PricingInfo
+                                instance_type.pricing = PricingInfo(
+                                    on_demand_price=on_demand_price,
+                                    spot_price=spot_prices.get(instance_type_name)
+                                )
+                                
+                                if on_demand_price is None:
+                                    # Track failed instances for retry
+                                    failed_instances.append(instance_type)
+                                else:
+                                    completed_count += 1
+                                
+                                # Update UI every 20 instances or when complete
+                                if (completed_count + len(failed_instances)) % 20 == 0 or (completed_count + len(failed_instances)) == total_to_fetch:
+                                    def update_progress():
+                                        try:
+                                            instance_list.update_pricing_progress()
+                                        except Exception as e:
+                                            DebugLog.log(f"Error updating pricing progress: {e}")
+                                    self.call_from_thread(update_progress)
+                        except Exception as e:
+                            DebugLog.log(f"Error processing pricing result: {e}")
+                            # Track which instance failed
+                            instance_obj = future_to_instance.get(future)
+                            if instance_obj:
+                                failed_instances.append(instance_obj)
+                
+                # Retry failed instances with more conservative settings
+                if failed_instances and not self._shutting_down:
+                    DebugLog.log(f"Retrying {len(failed_instances)} failed pricing requests with reduced concurrency")
+                    max_workers_retry = 5  # Even more conservative for retries
+                    
+                    with ThreadPoolExecutor(max_workers=max_workers_retry) as executor:
+                        retry_futures = {
+                            executor.submit(fetch_on_demand_price, inst): inst
+                            for inst in failed_instances
+                        }
+                        
+                        for future in as_completed(retry_futures):
+                            if self._shutting_down:
+                                break
+                            
+                            try:
+                                instance_type_name, on_demand_price = future.result()
+                                instance_type = next(
+                                    (inst for inst in failed_instances 
+                                     if inst.instance_type == instance_type_name),
+                                    None
+                                )
+                                
+                                if instance_type and on_demand_price is not None:
+                                    # Update pricing if we got it this time
+                                    if instance_type.pricing:
+                                        instance_type.pricing.on_demand_price = on_demand_price
+                                    else:
+                                        from src.models.instance_type import PricingInfo
+                                        instance_type.pricing = PricingInfo(
+                                            on_demand_price=on_demand_price,
+                                            spot_price=spot_prices.get(instance_type_name)
+                                        )
+                                    completed_count += 1
+                                    
+                                    def update_progress():
+                                        try:
+                                            instance_list.update_pricing_progress()
+                                        except Exception:
+                                            pass
+                                    self.call_from_thread(update_progress)
+                            except Exception as e:
+                                instance_obj = retry_futures.get(future)
+                                inst_name = instance_obj.instance_type if instance_obj else "unknown"
+                                DebugLog.log(f"Error in retry for {inst_name}: {e}")
+                
+                # Mark pricing as done and final update
+                pricing_loaded_count = sum(
+                    1 for inst in self.instance_types
+                    if inst.pricing and inst.pricing.on_demand_price is not None
+                )
+                total_count = len(self.instance_types)
+                DebugLog.log(f"Pricing fetch completed: {pricing_loaded_count}/{total_count} instance types have pricing data")
+                
+                def mark_done():
+                    try:
+                        instance_list.mark_pricing_loading(False)
+                    except Exception as e:
+                        DebugLog.log(f"Error marking pricing as done: {e}")
+                self.call_from_thread(mark_done)
+            except Exception as e:
+                DebugLog.log(f"Error fetching pricing: {e}")
+                import traceback
+                DebugLog.log(f"Traceback: {traceback.format_exc()}")
+                # Mark pricing as done even on error
+                def mark_done_error():
+                    try:
+                        instance_list.mark_pricing_loading(False)
+                    except Exception:
+                        pass
+                self.call_from_thread(mark_done_error)
+        
+        # Run pricing fetch in background
+        DebugLog.log("Starting pricing worker")
+        worker = self.run_worker(
+            pricing_worker,
+            name="fetch_pricing",
+            description="Fetching EC2 instance pricing",
+            thread=True,
+            exit_on_error=False,
+        )
+        self._pricing_worker = worker
+        DebugLog.log(f"Pricing worker started: {worker}")
+    
+    def on_exit(self) -> None:
+        """Handle app exit - cancel pricing worker"""
+        DebugLog.log("App exiting - cancelling pricing worker")
+        self._shutting_down = True
+        
+        # Cancel the pricing worker if it's running
+        if self._pricing_worker is not None:
+            try:
+                # Textual workers don't have a direct cancel, but setting shutdown flag
+                # will cause the worker to exit on next check
+                DebugLog.log("Pricing worker shutdown flag set")
+            except Exception as e:
+                DebugLog.log(f"Error cancelling pricing worker: {e}")
+        
+        # Also cancel the instance fetch worker if it's running
+        if hasattr(self, '_current_worker') and self._current_worker is not None:
+            try:
+                DebugLog.log("Instance fetch worker shutdown flag set")
+            except Exception as e:
+                DebugLog.log(f"Error cancelling instance fetch worker: {e}")
 
     def _handle_fetch_error(self, error: Exception) -> None:
         """Handle fetch error"""

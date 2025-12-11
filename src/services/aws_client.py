@@ -19,6 +19,7 @@ class AWSClient:
         self.region = region
         self.profile = profile
         self._ec2_client = None
+        self._pricing_client = None
 
     def _get_session(self):
         """Get boto3 session"""
@@ -43,6 +44,25 @@ class AWSClient:
             except Exception as e:
                 raise ValueError(f"Failed to create AWS client: {str(e)}")
         return self._ec2_client
+
+    @property
+    def pricing_client(self):
+        """Get Pricing API client, creating if necessary"""
+        if self._pricing_client is None:
+            try:
+                session = self._get_session()
+                # Pricing API is only available in us-east-1 and ap-south-1
+                self._pricing_client = session.client("pricing", region_name="us-east-1")
+            except NoCredentialsError:
+                raise ValueError(
+                    "AWS credentials not found. Please configure credentials using:\n"
+                    "  - AWS CLI: aws configure\n"
+                    "  - Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY\n"
+                    "  - Or specify a profile with --profile"
+                )
+            except Exception as e:
+                raise ValueError(f"Failed to create Pricing API client: {str(e)}")
+        return self._pricing_client
 
     def test_connection(self) -> bool:
         """Test AWS connection"""

@@ -60,6 +60,38 @@ class InstanceStorageInfo:
 
 
 @dataclass
+class PricingInfo:
+    """Pricing information"""
+    on_demand_price: Optional[float] = None  # Price per hour in USD
+    spot_price: Optional[float] = None  # Current spot price per hour in USD
+
+    def format_on_demand(self) -> str:
+        """Format on-demand price for display"""
+        if self.on_demand_price is None:
+            return "N/A"
+        return f"${self.on_demand_price:.4f}/hr"
+
+    def format_spot(self) -> str:
+        """Format spot price for display"""
+        if self.spot_price is None:
+            return "N/A"
+        return f"${self.spot_price:.4f}/hr"
+
+    def calculate_monthly_cost(self, hours_per_month: float = 730) -> Optional[float]:
+        """Calculate monthly cost based on hours per month (default 730 = 24*365/12)"""
+        if self.on_demand_price is None:
+            return None
+        return self.on_demand_price * hours_per_month
+
+    def calculate_annual_cost(self) -> Optional[float]:
+        """Calculate annual cost"""
+        monthly = self.calculate_monthly_cost()
+        if monthly is None:
+            return None
+        return monthly * 12
+
+
+@dataclass
 class InstanceType:
     """Complete instance type information"""
     instance_type: str
@@ -72,6 +104,7 @@ class InstanceType:
     current_generation: bool = True
     burstable_performance_supported: bool = False
     hibernation_supported: bool = False
+    pricing: Optional[PricingInfo] = None
 
     @classmethod
     def from_aws_response(cls, data: dict) -> "InstanceType":
