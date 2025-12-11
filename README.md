@@ -4,6 +4,10 @@ A Terminal User Interface (TUI) application for browsing AWS EC2 instance types 
 
 ![Instance List Screen](screenshot-instance-list.png)
 
+![Instance Details Screen](screenshot-details.png)
+
+![Pricing Information](screenshot-pricing.png)
+
 ## Features
 
 - 🗺️ **Region Selection**: Browse instance types for any AWS region you have access to
