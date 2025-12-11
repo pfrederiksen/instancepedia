@@ -1,8 +1,8 @@
 """Debug logging utility"""
 
 from typing import List, Optional
-from textual.widgets import Static
-from textual.containers import Container
+from textual.widgets import Static, RichLog
+from textual.containers import Container, ScrollableContainer
 
 
 class DebugLog:
@@ -10,7 +10,7 @@ class DebugLog:
     _instance: Optional['DebugLog'] = None
     _enabled: bool = False
     _messages: List[str] = []
-    _max_messages: int = 50
+    _max_messages: int = 1000  # Increased for scrolling log
 
     def __new__(cls):
         if cls._instance is None:
@@ -43,7 +43,7 @@ class DebugLog:
         log_message = f"[{timestamp}] {message}"
         cls._messages.append(log_message)
         
-        # Keep only the last N messages
+        # Keep only the last N messages (increase for scrolling log)
         if len(cls._messages) > cls._max_messages:
             cls._messages = cls._messages[-cls._max_messages:]
         
@@ -73,13 +73,14 @@ class DebugPane(Container):
     def __init__(self):
         super().__init__(id="debug-pane")
         self._debug_log = DebugLog()
+        self._last_message_count = 0  # Track how many messages we've added
         # Store reference to this pane in the debug log instance
         if DebugLog._instance:
             DebugLog._instance._debug_pane = self
 
     CSS = """
     #debug-pane {
-        height: 3;
+        height: 50%;
         border-top: solid $primary;
         background: $panel;
         padding: 0 1;
@@ -90,40 +91,64 @@ class DebugPane(Container):
         text-style: bold;
         color: $primary;
         height: 1;
+        padding: 0 1;
     }
     
     #debug-content {
-        color: $text-muted;
-        font-size: 70%;
-        height: 2;
-        content-align: left top;
+        height: 1fr;
+        border: solid $primary;
+        padding: 1;
     }
     """
 
     def compose(self):
-        from textual.widgets import Static
         yield Static("Debug Log:", id="debug-label")
-        yield Static("", id="debug-content")
+        with ScrollableContainer(id="debug-content"):
+            yield RichLog(id="debug-log", wrap=True, markup=False)
 
     def on_mount(self) -> None:
         """Update debug pane when mounted"""
         # Store reference
         if DebugLog._instance:
             DebugLog._instance._debug_pane = self
-        self._update_debug_pane()
+        
+        # Initialize with existing messages
+        try:
+            messages = self._debug_log.get_messages()
+            debug_log = self.query_one("#debug-log", RichLog)
+            for msg in messages:
+                debug_log.write(msg)
+            self._last_message_count = len(messages)
+        except Exception:
+            self._last_message_count = 0
+        
         # Set up a timer to periodically update
-        self.set_interval(0.5, self._update_debug_pane)
+        self.set_interval(0.1, self._update_debug_pane)  # Update more frequently
 
     def _update_debug_pane(self) -> None:
         """Update the debug pane content"""
         try:
             messages = self._debug_log.get_messages()
-            # Show last 3-4 messages (fewer for smaller pane)
-            content = " | ".join(messages[-3:])  # Show last 3 messages on one line
-            if not content:
-                content = "No debug messages yet..."
-            debug_content = self.query_one("#debug-content", Static)
-            debug_content.update(content)
+            debug_log = self.query_one("#debug-log", RichLog)
+            
+            # Only add new messages that haven't been added yet
+            if self._last_message_count < len(messages):
+                # Add new messages
+                for msg in messages[self._last_message_count:]:
+                    debug_log.write(msg)
+                self._last_message_count = len(messages)
+                # Auto-scroll to bottom to show latest messages
+                debug_log.scroll_end(animate=False)
         except Exception:
-            pass  # Ignore errors during update
+            # If RichLog doesn't exist yet or other error, try to initialize
+            try:
+                debug_log = self.query_one("#debug-log", RichLog)
+                # Clear and repopulate
+                debug_log.clear()
+                messages = self._debug_log.get_messages()
+                for msg in messages:
+                    debug_log.write(msg)
+                self._last_message_count = len(messages)
+            except Exception:
+                pass  # Ignore errors during update
 

@@ -8,6 +8,11 @@ A Terminal User Interface (TUI) application for browsing AWS EC2 instance types 
 
 - 🗺️ **Region Selection**: Browse instance types for any AWS region you have access to
 - 📋 **Instance List**: View all available EC2 instance types with key metrics
+- 💰 **Pricing Information**: See on-demand and spot prices for each instance type
+  - Prices load in the background for all instance types
+  - Batch fetching for optimal performance
+  - Automatic retry with exponential backoff on rate limits
+- 💵 **Cost Calculator**: Automatic calculation of monthly and annual costs, plus cost per vCPU and GB RAM
 - 🔍 **Search & Filter**: Search by instance type name, filter by free tier eligibility
 - 📊 **Detailed Information**: Comprehensive details for each instance type including:
   - Compute specifications (vCPU, cores, threads)
@@ -15,8 +20,10 @@ A Terminal User Interface (TUI) application for browsing AWS EC2 instance types 
   - Network performance
   - Storage options (EBS, instance store)
   - Architecture support
+  - Pricing and cost analysis with spot price savings
 - 🆓 **Free Tier Indicators**: Clearly marked free tier eligible instances
 - ⚡ **Fast Navigation**: Smooth screen transitions with loading indicators
+- 🐛 **Debug Mode**: Scrolling debug log for troubleshooting (use `--debug` flag)
 
 ## Installation
 
@@ -37,10 +44,12 @@ Run the application:
 python3 -m src.main
 ```
 
-Or with debug mode enabled:
+Or with debug mode enabled (shows scrolling debug log):
 ```bash
 python3 -m src.main --debug
 ```
+
+**Note**: Pricing information loads in the background after instance types are displayed. You'll see a progress indicator showing how many prices have been loaded. The application uses parallel requests and batch processing to fetch pricing efficiently, with automatic retry logic for rate-limited requests.
 
 Or install as a package and run:
 ```bash
@@ -76,7 +85,7 @@ You can configure the application using environment variables:
 
 ## IAM Permissions
 
-Instancepedia requires minimal AWS permissions to function. The application only needs read-only access to EC2 instance type information.
+Instancepedia requires minimal AWS permissions to function. The application needs read-only access to EC2 instance type information and pricing data.
 
 ### Required IAM Policy
 
@@ -90,13 +99,25 @@ Create an IAM policy with the following JSON:
             "Effect": "Allow",
             "Action": [
                 "ec2:DescribeRegions",
-                "ec2:DescribeInstanceTypes"
+                "ec2:DescribeInstanceTypes",
+                "ec2:DescribeSpotPriceHistory"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "pricing:GetProducts"
             ],
             "Resource": "*"
         }
     ]
 }
 ```
+
+**Note**: The `pricing:GetProducts` permission is required to display on-demand pricing. The `ec2:DescribeSpotPriceHistory` permission is required to display current spot prices. If you don't need pricing information, you can omit these permissions and the application will still function (pricing will show as "N/A").
+
+The application handles AWS API rate limiting automatically with exponential backoff retry logic, so you don't need to worry about rate limit errors.
 
 ### Setting Up IAM Permissions
 
@@ -128,6 +149,15 @@ Alternatively, you can use the AWS Console:
 2. Select JSON tab and paste the policy above
 3. Name it `InstancepediaReadOnly` and create it
 4. Attach it to your user or role as needed
+
+## Performance
+
+Instancepedia is optimized for performance:
+
+- **Parallel Pricing Fetching**: Uses thread pools to fetch pricing data concurrently
+- **Batch Spot Price Queries**: Fetches spot prices in batches of up to 50 instance types per API call
+- **Automatic Retry**: Handles rate limiting with exponential backoff (1s, 2s, 4s, etc.)
+- **Background Loading**: Pricing loads in the background so you can browse instance types immediately
 
 ## Requirements
 

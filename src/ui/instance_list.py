@@ -31,6 +31,8 @@ class InstanceList(Screen):
         self._region = region  # Use _region to avoid conflict with Screen.region property
         self.free_tier_filter = False
         self.search_term = ""
+        self._pricing_loading = True  # Track if pricing is being loaded
+        self._pricing_loaded_count = 0  # Track how many prices have been loaded
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -38,6 +40,10 @@ class InstanceList(Screen):
                 yield Static(
                     f"EC2 Instance Types - {self._region}",
                     id="header"
+                )
+                yield Static(
+                    "",
+                    id="pricing-status-header"
                 )
                 with Horizontal(id="search-container"):
                     yield Label("Search: ", id="search-label")
@@ -65,9 +71,11 @@ class InstanceList(Screen):
             "vCPU",
             "Memory",
             "Network",
+            "On-Demand Price",
             "Architecture",
             "Free Tier"
         )
+        self._update_pricing_header()
         self._populate_table()
         # Focus the table so it can receive keyboard input and scroll
         table.focus()
@@ -94,11 +102,20 @@ class InstanceList(Screen):
             is_free_tier = free_tier_service.is_eligible(instance.instance_type)
             free_tier_str = "🆓 [FREE TIER]" if is_free_tier else ""
 
+            # Format pricing
+            if instance.pricing and instance.pricing.on_demand_price:
+                price_str = f"${instance.pricing.on_demand_price:.4f}/hr"
+            elif self._pricing_loading:
+                price_str = "⏳ Loading..."
+            else:
+                price_str = "N/A"
+
             table.add_row(
                 instance.instance_type,
                 str(instance.vcpu_info.default_vcpus),
                 memory_str,
                 instance.network_info.network_performance,
+                price_str,
                 arch_str,
                 free_tier_str,
             )
@@ -115,6 +132,18 @@ class InstanceList(Screen):
             status += f" | 🆓 {free_tier_count} free tier eligible"
         if self.free_tier_filter:
             status += " | [Free Tier Filter Active]"
+        
+        # Add pricing loading status
+        if self._pricing_loading:
+            pricing_loaded = sum(
+                1 for inst in self.filtered_instance_types
+                if inst.pricing and inst.pricing.on_demand_price is not None
+            )
+            if filtered > 0:
+                status += f" | ⏳ Loading prices... ({pricing_loaded}/{filtered})"
+            else:
+                status += " | ⏳ Loading prices..."
+        
         self.query_one("#status-text", Static).update(status)
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -249,4 +278,33 @@ class InstanceList(Screen):
     def action_quit(self) -> None:
         """Quit application"""
         self.app.exit()
+    
+    def mark_pricing_loading(self, loading: bool) -> None:
+        """Mark pricing loading state"""
+        self._pricing_loading = loading
+        self._update_pricing_header()
+        self._populate_table()
+    
+    def update_pricing_progress(self) -> None:
+        """Update the table to reflect pricing progress"""
+        self._update_pricing_header()
+        self._populate_table()
+    
+    def _update_pricing_header(self) -> None:
+        """Update the pricing status header"""
+        try:
+            header = self.query_one("#pricing-status-header", Static)
+            if self._pricing_loading:
+                pricing_loaded = sum(
+                    1 for inst in self.all_instance_types
+                    if inst.pricing and inst.pricing.on_demand_price is not None
+                )
+                total = len(self.all_instance_types)
+                header.update(f"💰 ⏳ Loading pricing information... ({pricing_loaded}/{total} loaded)")
+                header.styles.color = "yellow"
+            else:
+                # Hide the header once loading is complete
+                header.update("")
+        except Exception:
+            pass  # Header might not exist yet
 
