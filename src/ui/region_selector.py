@@ -72,11 +72,29 @@ class RegionSelector(Screen):
     def __init__(self, default_region: str = "us-east-1", accessible_regions: list[str] = None):
         super().__init__()
         self.selected_region = default_region
-        # Filter to only show accessible regions if provided
+        
+        # Build region list: prioritize discovered regions, fall back to hardcoded list
         if accessible_regions:
-            self.regions = [(code, name) for code, name in AWS_REGIONS.items() if code in accessible_regions]
+            # Show all discovered regions, using hardcoded names where available
+            # For regions not in hardcoded list, generate a name from the region code
+            region_dict = {}
+            for code in accessible_regions:
+                if code in AWS_REGIONS:
+                    region_dict[code] = AWS_REGIONS[code]
+                else:
+                    # Generate a readable name from region code
+                    # Format: "ap-southeast-1" -> "Southeast 1"
+                    parts = code.split('-')
+                    if len(parts) >= 2:
+                        # Capitalize and format
+                        name_parts = [p.capitalize() for p in parts[1:]]
+                        region_dict[code] = ' '.join(name_parts)
+                    else:
+                        region_dict[code] = code.upper()
+            
+            self.regions = [(code, name) for code, name in sorted(region_dict.items())]
         else:
-            # If no accessible regions provided, show all (fallback)
+            # If no accessible regions provided, show all from hardcoded list (fallback)
             self.regions = list(AWS_REGIONS.items())
 
     def compose(self) -> ComposeResult:

@@ -131,14 +131,27 @@ class DebugPane(Container):
             messages = self._debug_log.get_messages()
             debug_log = self.query_one("#debug-log", RichLog)
             
-            # Only add new messages that haven't been added yet
-            if self._last_message_count < len(messages):
+            # Handle case where messages were trimmed and _last_message_count is out of sync
+            # If messages were trimmed, we need to reset and repopulate
+            if self._last_message_count > len(messages):
+                # Messages were trimmed, clear and repopulate
+                debug_log.clear()
+                for msg in messages:
+                    debug_log.write(msg)
+                self._last_message_count = len(messages)
+                debug_log.scroll_end(animate=False)
+            elif self._last_message_count < len(messages):
                 # Add new messages
                 for msg in messages[self._last_message_count:]:
                     debug_log.write(msg)
                 self._last_message_count = len(messages)
-                # Auto-scroll to bottom to show latest messages
-                debug_log.scroll_end(animate=False)
+                # Force scroll to bottom to show latest messages
+                try:
+                    debug_log.scroll_end(animate=False)
+                    # Also try scrolling by a large amount to ensure we're at the end
+                    debug_log.scroll_down(999999, animate=False)
+                except Exception:
+                    pass  # Ignore scroll errors
         except Exception:
             # If RichLog doesn't exist yet or other error, try to initialize
             try:
@@ -149,6 +162,7 @@ class DebugPane(Container):
                 for msg in messages:
                     debug_log.write(msg)
                 self._last_message_count = len(messages)
+                debug_log.scroll_end(animate=False)
             except Exception:
                 pass  # Ignore errors during update
 

@@ -295,12 +295,13 @@ class InstanceList(Screen):
         try:
             header = self.query_one("#pricing-status-header", Static)
             if self._pricing_loading:
+                # Count instances with on-demand pricing (spot prices loaded separately when viewing details)
                 pricing_loaded = sum(
                     1 for inst in self.all_instance_types
                     if inst.pricing and inst.pricing.on_demand_price is not None
                 )
                 total = len(self.all_instance_types)
-                header.update(f"💰 ⏳ Loading pricing information... ({pricing_loaded}/{total} loaded)")
+                header.update(f"💰 ⏳ Loading on-demand prices... ({pricing_loaded}/{total} loaded)")
                 header.styles.color = "yellow"
             else:
                 # Hide the header once loading is complete

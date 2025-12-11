@@ -156,18 +156,18 @@ class InstancepediaApp(App):
         if self.debug_mode:
             DebugLog.log("App mounted - Debug mode enabled")
         
-        # Get accessible regions
+        # Get accessible regions (only regions enabled for this account)
         try:
             from src.services.aws_client import AWSClient
             aws_client = AWSClient("us-east-1", self.settings.aws_profile)
             accessible_regions = aws_client.get_accessible_regions()
             if accessible_regions:
-                DebugLog.log(f"Found {len(accessible_regions)} accessible regions")
+                DebugLog.log(f"Found {len(accessible_regions)} accessible regions for this account")
             else:
-                DebugLog.log("Could not determine accessible regions, showing all")
+                DebugLog.log("Could not determine accessible regions, showing all from hardcoded list")
                 accessible_regions = None
         except Exception as e:
-            DebugLog.log(f"Error getting accessible regions: {e}, showing all")
+            DebugLog.log(f"Error getting accessible regions: {e}, showing all from hardcoded list")
             accessible_regions = None
         
         self.push_screen(RegionSelector(self.settings.aws_region, accessible_regions))
@@ -361,13 +361,8 @@ class InstancepediaApp(App):
                     return
                 
                 total_to_fetch = len(self.instance_types)
-                DebugLog.log(f"Fetching pricing for {total_to_fetch} instance types using parallel requests")
-                
-                # First, fetch all spot prices in batch (much faster)
-                instance_type_names = [inst.instance_type for inst in self.instance_types]
-                DebugLog.log("Fetching spot prices in batch...")
-                spot_prices = pricing_service.get_spot_prices_batch(instance_type_names, self.current_region)
-                DebugLog.log(f"Fetched spot prices for {len([p for p in spot_prices.values() if p is not None])} instance types")
+                DebugLog.log(f"Fetching on-demand prices for {total_to_fetch} instance types using parallel requests")
+                DebugLog.log("Note: Spot prices will be fetched on-demand when viewing instance details")
                 
                 # Create a function to fetch on-demand price for a single instance type
                 def fetch_on_demand_price(instance_type_obj):
@@ -375,20 +370,29 @@ class InstancepediaApp(App):
                     if self._shutting_down:
                         return None, None
                     try:
+                        # Add small delay to avoid rate limiting (spread out requests)
+                        import time
+                        time.sleep(0.1)  # 100ms delay between requests
+                        
                         # get_on_demand_price already has retry logic built in
                         on_demand = pricing_service.get_on_demand_price(
                             instance_type_obj.instance_type,
                             self.current_region,
                             max_retries=5  # More retries for parallel requests
                         )
+                        if on_demand is None:
+                            DebugLog.log(f"Could not fetch price for {instance_type_obj.instance_type} in {self.current_region} - may not be available in this region")
                         return instance_type_obj.instance_type, on_demand
                     except Exception as e:
                         DebugLog.log(f"Error fetching on-demand price for {instance_type_obj.instance_type}: {e}")
+                        import traceback
+                        DebugLog.log(f"Traceback: {traceback.format_exc()}")
                         return instance_type_obj.instance_type, None
                 
                 # Fetch on-demand prices in parallel using thread pool
-                # Use a reasonable concurrency limit to avoid rate limiting
-                max_workers = 10  # Reduced to avoid rate limits
+                # Use a conservative concurrency limit to avoid rate limiting
+                # AWS Pricing API has strict rate limits
+                max_workers = 5  # Reduced further to avoid rate limits
                 completed_count = 0
                 failed_instances = []  # Track failed instances for retry
                 
@@ -419,9 +423,10 @@ class InstancepediaApp(App):
                             
                             if instance_type:
                                 from src.models.instance_type import PricingInfo
+                                # Only set on-demand price initially; spot prices fetched on-demand when viewing details
                                 instance_type.pricing = PricingInfo(
                                     on_demand_price=on_demand_price,
-                                    spot_price=spot_prices.get(instance_type_name)
+                                    spot_price=None  # Will be fetched when viewing instance detail
                                 )
                                 
                                 if on_demand_price is None:
@@ -430,8 +435,8 @@ class InstancepediaApp(App):
                                 else:
                                     completed_count += 1
                                 
-                                # Update UI every 20 instances or when complete
-                                if (completed_count + len(failed_instances)) % 20 == 0 or (completed_count + len(failed_instances)) == total_to_fetch:
+                                # Update UI every 5 instances or when complete (more frequent updates)
+                                if (completed_count + len(failed_instances)) % 5 == 0 or (completed_count + len(failed_instances)) == total_to_fetch:
                                     def update_progress():
                                         try:
                                             instance_list.update_pricing_progress()
@@ -448,7 +453,7 @@ class InstancepediaApp(App):
                 # Retry failed instances with more conservative settings
                 if failed_instances and not self._shutting_down:
                     DebugLog.log(f"Retrying {len(failed_instances)} failed pricing requests with reduced concurrency")
-                    max_workers_retry = 5  # Even more conservative for retries
+                    max_workers_retry = 2  # Very conservative for retries to avoid rate limits
                     
                     with ThreadPoolExecutor(max_workers=max_workers_retry) as executor:
                         retry_futures = {
@@ -476,7 +481,7 @@ class InstancepediaApp(App):
                                         from src.models.instance_type import PricingInfo
                                         instance_type.pricing = PricingInfo(
                                             on_demand_price=on_demand_price,
-                                            spot_price=spot_prices.get(instance_type_name)
+                                            spot_price=None  # Will be fetched when viewing instance detail
                                         )
                                     completed_count += 1
                                     

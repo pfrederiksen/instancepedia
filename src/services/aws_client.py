@@ -73,11 +73,19 @@ class AWSClient:
             return False
     
     def get_accessible_regions(self) -> list[str]:
-        """Get list of regions accessible to the current AWS account"""
+        """
+        Get list of regions that are enabled and accessible to the current AWS account.
+        Only returns regions the account can actually use (not opt-in required or disabled).
+        
+        Returns:
+            List of region codes that are accessible
+        """
         try:
-            # Use a default region to query for all accessible regions
+            # Use a default region to query for accessible regions
             session = self._get_session()
             ec2 = session.client("ec2", region_name="us-east-1")  # Use a standard region for the query
+            # By default, describe_regions() returns only regions enabled for the account
+            # This avoids trying to access regions that require opt-in or are disabled
             response = ec2.describe_regions()
             accessible_regions = [region["RegionName"] for region in response["Regions"]]
             return accessible_regions
