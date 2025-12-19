@@ -112,6 +112,11 @@ class InstancepediaApp(App):
         height: 1fr;
     }
     
+    #instance-tree {
+        margin: 1;
+        height: 1fr;
+    }
+    
     #status-bar {
         margin: 1;
         height: 1;
