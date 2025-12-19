@@ -8,6 +8,39 @@ version = "0.1.0"
 description = "EC2 Instance Type Browser TUI"
 readme = "README.md"
 requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Paul Frederiksen"}
+]
+keywords = [
+    "aws",
+    "ec2",
+    "instance-types",
+    "tui",
+    "terminal",
+    "cli",
+    "pricing",
+    "cloud",
+    "textual",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Environment :: Console",
+    "Environment :: Console :: Curses",
+]
 dependencies = [
     "textual>=0.40.0",
     "boto3>=1.28.0",
@@ -15,10 +48,29 @@ dependencies = [
     "pydantic-settings>=2.0.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "build>=0.10.0",
+    "twine>=4.0.0",
+    "pytest>=7.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/pfrederiksen/instancepedia"
+Documentation = "https://github.com/pfrederiksen/instancepedia#readme"
+Repository = "https://github.com/pfrederiksen/instancepedia"
+Issues = "https://github.com/pfrederiksen/instancepedia/issues"
+
 [project.scripts]
 instancepedia = "src.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+"*" = ["LICENSE", "README.md"]
 
