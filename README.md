@@ -2,11 +2,11 @@
 
 A Terminal User Interface (TUI) application for browsing AWS EC2 instance types with detailed information and free tier eligibility.
 
-![Instance List Screen](screenshots/screenshot-instance-list.png)
+![Instance List Screen](https://raw.githubusercontent.com/pfrederiksen/instancepedia/main/screenshots/screenshot-instance-list.png)
 
-![Instance Details Screen](screenshots/screenshot-details.png)
+![Instance Details Screen](https://raw.githubusercontent.com/pfrederiksen/instancepedia/main/screenshots/screenshot-details.png)
 
-![Pricing Information](screenshots/screenshot-pricing.png)
+![Pricing Information](https://raw.githubusercontent.com/pfrederiksen/instancepedia/main/screenshots/screenshot-pricing.png)
 
 ## Features
 
