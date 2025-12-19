@@ -39,24 +39,55 @@ A Terminal User Interface (TUI) application for browsing AWS EC2 instance types 
 
 ## Installation
 
-1. Install dependencies:
+### From PyPI (Recommended)
+
+```bash
+pip install instancepedia
+```
+
+### From Source
+
+1. Clone the repository:
+```bash
+git clone https://github.com/pfrederiksen/instancepedia.git
+cd instancepedia
+```
+
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configure AWS credentials (one of the following):
+Or install in development mode:
+```bash
+pip install -e .
+```
+
+### Configure AWS Credentials
+
+After installation, configure AWS credentials (one of the following):
    - Run `aws configure`
    - Set environment variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
    - Use an AWS profile: `export AWS_PROFILE=your-profile`
 
 ## Usage
 
-Run the application:
+After installation from PyPI, simply run:
+```bash
+instancepedia
+```
+
+Or with debug mode enabled (shows scrolling debug log):
+```bash
+instancepedia --debug
+```
+
+If you installed from source (development mode), you can also run:
 ```bash
 python3 -m src.main
 ```
 
-Or with debug mode enabled (shows scrolling debug log):
+Or with debug mode:
 ```bash
 python3 -m src.main --debug
 ```
@@ -67,12 +98,6 @@ python3 -m src.main --debug
 - Real-time updates as prices load (tree updates are throttled to preserve your expanded sections)
 - The application uses parallel requests and batch processing to fetch pricing efficiently, with automatic retry logic for rate-limited requests
 - Your expanded categories and families remain open during pricing updates
-
-Or install as a package and run:
-```bash
-pip install -e .
-instancepedia
-```
 
 ### Keyboard Shortcuts
 
@@ -190,43 +215,109 @@ Instancepedia is optimized for performance:
 
 - Python 3.8+
 - AWS credentials configured
-- boto3
-- textual
-- pydantic
+- Dependencies (installed automatically with pip):
+  - `boto3>=1.28.0` - AWS SDK
+  - `textual>=0.40.0` - TUI framework
+  - `pydantic>=2.0.0` - Data validation
+  - `pydantic-settings>=2.0.0` - Settings management
+
+## Development
+
+### Setting Up Development Environment
+
+1. Clone the repository:
+```bash
+git clone https://github.com/pfrederiksen/instancepedia.git
+cd instancepedia
+```
+
+2. Install in development mode with dev dependencies:
+```bash
+pip install -e ".[dev]"
+```
+
+This installs the package in editable mode along with development tools (build, twine, pytest).
+
+### Building and Publishing
+
+To build the package for PyPI:
+
+1. Install build tools (use a virtual environment):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade build twine
+```
+
+2. Build the package:
+```bash
+python3 -m build
+```
+
+3. Check the package:
+```bash
+python3 -m twine check dist/*
+```
+
+4. Publish to TestPyPI (recommended first):
+```bash
+python3 -m twine upload --repository testpypi dist/*
+```
+
+5. Publish to PyPI:
+```bash
+python3 -m twine upload dist/*
+```
+
+Or use the helper script:
+```bash
+./scripts/publish.sh testpypi  # Test first
+./scripts/publish.sh pypi      # Production
+```
+
+### Running Tests
+
+```bash
+pytest
+```
 
 ## Project Structure
 
 ```
 instancepedia/
-├── src/
+├── src/                      # Source code
 │   ├── __init__.py
-│   ├── app.py           # Main application
-│   ├── main.py          # Entry point
-│   ├── debug.py         # Debug utilities
-│   ├── config/
+│   ├── app.py                # Main application
+│   ├── main.py               # Entry point
+│   ├── debug.py              # Debug utilities
+│   ├── config/               # Configuration
 │   │   ├── __init__.py
-│   │   └── settings.py  # Configuration settings
-│   ├── models/          # Data models
+│   │   └── settings.py       # Configuration settings
+│   ├── models/               # Data models
 │   │   ├── __init__.py
 │   │   ├── free_tier.py
 │   │   ├── instance_type.py
 │   │   └── region.py
-│   ├── services/        # AWS service wrappers
+│   ├── services/             # AWS service wrappers
 │   │   ├── __init__.py
 │   │   ├── aws_client.py
 │   │   ├── free_tier_service.py
 │   │   ├── instance_service.py
 │   │   └── pricing_service.py
-│   └── ui/              # TUI screens
+│   └── ui/                   # TUI screens
 │       ├── __init__.py
 │       ├── instance_detail.py
 │       ├── instance_list.py
 │       └── region_selector.py
-├── screenshots/         # Application screenshots
-├── LICENSE
-├── pyproject.toml
-├── requirements.txt
-└── README.md
+├── scripts/                  # Utility scripts
+│   └── publish.sh            # PyPI publishing helper
+├── screenshots/              # Application screenshots
+├── .gitignore               # Git ignore rules
+├── LICENSE                  # MIT License
+├── MANIFEST.in              # Package manifest for PyPI
+├── pyproject.toml           # Project configuration and metadata
+├── requirements.txt         # Python dependencies
+└── README.md                # This file
 ```
 
 ## License

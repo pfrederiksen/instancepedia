@@ -19,6 +19,13 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
+
+# PyPI publishing
+.pypirc
+dist/
+*.whl
+*.tar.gz
 
 # Virtual Environment
 venv/
