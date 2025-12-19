@@ -199,12 +199,32 @@ Instancepedia is optimized for performance:
 ```
 instancepedia/
 ├── src/
-│   ├── models/          # Data models
-│   ├── services/        # AWS service wrappers
-│   ├── ui/              # TUI screens
-│   ├── config/          # Configuration
+│   ├── __init__.py
 │   ├── app.py           # Main application
-│   └── main.py          # Entry point
+│   ├── main.py          # Entry point
+│   ├── debug.py         # Debug utilities
+│   ├── config/
+│   │   ├── __init__.py
+│   │   └── settings.py  # Configuration settings
+│   ├── models/          # Data models
+│   │   ├── __init__.py
+│   │   ├── free_tier.py
+│   │   ├── instance_type.py
+│   │   └── region.py
+│   ├── services/        # AWS service wrappers
+│   │   ├── __init__.py
+│   │   ├── aws_client.py
+│   │   ├── free_tier_service.py
+│   │   ├── instance_service.py
+│   │   └── pricing_service.py
+│   └── ui/              # TUI screens
+│       ├── __init__.py
+│       ├── instance_detail.py
+│       ├── instance_list.py
+│       └── region_selector.py
+├── screenshots/         # Application screenshots
+├── LICENSE
+├── pyproject.toml
 ├── requirements.txt
 └── README.md
 ```
