@@ -1,5 +1,6 @@
 """Instance type list screen"""
 
+import re
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal
 from textual.widgets import Tree, Input, Static, Label
@@ -439,11 +440,12 @@ class InstanceList(Screen):
     
     def _extract_category_name(self, label: str) -> str:
         """Extract category name from label (removes instance count)"""
-        # Label format: "Category Name (X instances)"
-        # Extract just the category name
-        if ' (' in label:
-            return label.split(' (')[0]
-        return label
+        # Label format: "Category Name (X instances)" or "Category Name (Subname) (X instances)"
+        # Extract just the category name by removing the trailing " (X instances)" pattern
+        # Match pattern: " (number instances)" at the end of the string
+        # This handles category names that contain parentheses like "Memory Optimized (X1e)"
+        pattern = r' \(\d+ instances\)$'
+        return re.sub(pattern, '', label)
     
     def _extract_family_name(self, label: str) -> str:
         """Extract family name from label (removes instance count)"""
