@@ -186,7 +186,7 @@ class InstanceList(Screen):
             memory_str = f"{memory_gb:.1f}GB"
         
         # Format pricing
-        if instance.pricing and instance.pricing.on_demand_price:
+        if instance.pricing and instance.pricing.on_demand_price is not None:
             price_str = f"${instance.pricing.on_demand_price:.4f}/hr"
         elif self._pricing_loading:
             price_str = "⏳ Loading..."
