@@ -240,11 +240,39 @@ This installs the package in editable mode along with development tools (build, 
 
 ### Building and Publishing
 
-See [PUBLISHING.md](PUBLISHING.md) for detailed instructions on building and publishing to PyPI.
+To build the package for PyPI:
 
-Quick build:
+1. Install build tools (use a virtual environment):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade build twine
+```
+
+2. Build the package:
 ```bash
 python3 -m build
+```
+
+3. Check the package:
+```bash
+python3 -m twine check dist/*
+```
+
+4. Publish to TestPyPI (recommended first):
+```bash
+python3 -m twine upload --repository testpypi dist/*
+```
+
+5. Publish to PyPI:
+```bash
+python3 -m twine upload dist/*
+```
+
+Or use the helper script:
+```bash
+./scripts/publish.sh testpypi  # Test first
+./scripts/publish.sh pypi      # Production
 ```
 
 ### Running Tests
@@ -287,7 +315,6 @@ instancepedia/
 ├── .gitignore               # Git ignore rules
 ├── LICENSE                  # MIT License
 ├── MANIFEST.in              # Package manifest for PyPI
-├── PUBLISHING.md            # PyPI publishing guide
 ├── pyproject.toml           # Project configuration and metadata
 ├── requirements.txt         # Python dependencies
 └── README.md                # This file
