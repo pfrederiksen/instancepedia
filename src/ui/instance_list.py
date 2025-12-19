@@ -51,9 +51,29 @@ def get_family_category(family: str) -> str:
     Returns:
         Category name for display
     """
-    # Map family prefixes to categories
-    first_char = family[0].lower() if family else ''
+    family_lower = family.lower() if family else ''
+    first_char = family_lower[0] if family_lower else ''
     
+    # Check for specific prefixes first (before first character matching)
+    # ML and HPC instances
+    if family_lower.startswith('trn'):  # Trainium (ML training)
+        return 'Accelerated Computing'
+    if family_lower.startswith('inf'):  # Inferentia (ML inference)
+        return 'Accelerated Computing'
+    if family_lower.startswith('dl'):  # Deep Learning
+        return 'Accelerated Computing'
+    if family_lower.startswith('hpc'):  # High Performance Computing
+        return 'Accelerated Computing'
+    
+    # Special instance types
+    if family_lower.startswith('mac'):
+        return 'Mac Instances'
+    if family_lower.startswith('x1'):
+        return 'Memory Optimized (X1e)'
+    if family_lower.startswith('z1'):
+        return 'Memory Optimized (Z1d)'
+    
+    # Map family prefixes to categories
     category_map = {
         't': 'Burstable Performance',
         'm': 'General Purpose',
@@ -68,16 +88,7 @@ def get_family_category(family: str) -> str:
         'p': 'GPU Instances',
         'f': 'FPGA Instances',
         'a': 'ARM-based (Graviton)',
-        'mac': 'Mac Instances',
     }
-    
-    # Check for specific prefixes first
-    if family.lower().startswith('mac'):
-        return 'Mac Instances'
-    if family.lower().startswith('x1'):
-        return 'Memory Optimized (X1e)'
-    if family.lower().startswith('z1'):
-        return 'Memory Optimized (Z1d)'
     
     # Check first character
     if first_char in category_map:
@@ -218,7 +229,9 @@ class InstanceList(Screen):
                             )
                             if is_expanded:
                                 category_label = str(category_node.label)
-                                self._expanded_categories.add(category_label)
+                                # Extract category name without count for state tracking
+                                category_name = self._extract_category_name(category_label)
+                                self._expanded_categories.add(category_name)
                                 # Check family nodes
                                 family_children = getattr(category_node, 'children', None) or getattr(category_node, '_children', [])
                                 for family_node in family_children:
@@ -230,7 +243,9 @@ class InstanceList(Screen):
                                         )
                                         if family_expanded:
                                             family_label = str(family_node.label)
-                                            self._expanded_families.add(family_label)
+                                            # Extract family name without count for state tracking
+                                            family_name = self._extract_family_name(family_label)
+                                            self._expanded_families.add(family_name)
                                     except Exception:
                                         pass
                         except Exception:
@@ -268,9 +283,10 @@ class InstanceList(Screen):
             category_count = sum(len(instances) for instances in category_families.values())
             
             # Create category node (branch)
+            # Use category name without count for state tracking, but display with count
             category_label = f"{category} ({category_count} instances)"
-            # Restore expanded state if it was expanded before
-            category_expanded = category_label in self._expanded_categories if preserve_state else False
+            # Restore expanded state using category name only (without count)
+            category_expanded = category in self._expanded_categories if preserve_state else False
             category_node = root.add(
                 category_label,
                 expand=category_expanded  # Restore previous state or default to collapsed
@@ -280,10 +296,11 @@ class InstanceList(Screen):
                 instances = category_families[family]
                 
                 # Create family node (branch) with count
+                # Use family name without count for state tracking, but display with count
                 family_label = f"{family} ({len(instances)} instances)"
-                # Restore expanded state if it was expanded before, or if category is expanded
+                # Restore expanded state using family name only (without count)
                 family_expanded = (
-                    (family_label in self._expanded_families or category_expanded) if preserve_state 
+                    (family in self._expanded_families or category_expanded) if preserve_state 
                     else category_expanded  # If category is expanded, expand families too
                 )
                 family_node = category_node.add(
@@ -383,21 +400,58 @@ class InstanceList(Screen):
             # Check if this is a category or family by checking if it has a parent that's a category
             try:
                 if hasattr(node, 'parent') and node.parent and node.parent == node.tree.root:
-                    # This is a category node
-                    self._expanded_categories.add(node_label)
+                    # This is a category node - extract category name (without count)
+                    category_name = self._extract_category_name(node_label)
+                    self._expanded_categories.add(category_name)
                     # Expand all family nodes under this category
                     for family_node in self._family_nodes:
                         try:
                             if hasattr(family_node, 'parent') and family_node.parent == node:
                                 family_node.expand()
-                                self._expanded_families.add(str(family_node.label))
+                                family_label = str(family_node.label)
+                                family_name = self._extract_family_name(family_label)
+                                self._expanded_families.add(family_name)
                         except Exception:
                             pass
                 else:
-                    # This is a family node
-                    self._expanded_families.add(node_label)
+                    # This is a family node - extract family name (without count)
+                    family_name = self._extract_family_name(node_label)
+                    self._expanded_families.add(family_name)
             except Exception:
                 pass  # Ignore errors
+    
+    def on_tree_node_collapsed(self, event: Tree.NodeCollapsed) -> None:
+        """Handle tree node collapse - remove from expanded state sets"""
+        node = event.node
+        if node.data is None:  # Branch node (category or family)
+            node_label = str(node.label)
+            try:
+                if hasattr(node, 'parent') and node.parent and node.parent == node.tree.root:
+                    # This is a category node - remove category name (without count)
+                    category_name = self._extract_category_name(node_label)
+                    self._expanded_categories.discard(category_name)
+                else:
+                    # This is a family node - remove family name (without count)
+                    family_name = self._extract_family_name(node_label)
+                    self._expanded_families.discard(family_name)
+            except Exception:
+                pass  # Ignore errors
+    
+    def _extract_category_name(self, label: str) -> str:
+        """Extract category name from label (removes instance count)"""
+        # Label format: "Category Name (X instances)"
+        # Extract just the category name
+        if ' (' in label:
+            return label.split(' (')[0]
+        return label
+    
+    def _extract_family_name(self, label: str) -> str:
+        """Extract family name from label (removes instance count)"""
+        # Label format: "family (X instances)"
+        # Extract just the family name
+        if ' (' in label:
+            return label.split(' (')[0]
+        return label
 
     def on_key(self, event: events.Key) -> None:
         """Handle key presses"""
