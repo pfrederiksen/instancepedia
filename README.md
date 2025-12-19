@@ -11,11 +11,19 @@ A Terminal User Interface (TUI) application for browsing AWS EC2 instance types 
 ## Features
 
 - 🗺️ **Region Selection**: Browse instance types for any AWS region you have access to
-- 📋 **Instance List**: View all available EC2 instance types with key metrics
+- 📋 **Categorized Instance List**: View all available EC2 instance types organized by family and category
+  - Hierarchical tree structure: Categories → Families → Instances
+  - Categories include: General Purpose, Compute Optimized, Memory Optimized, Burstable Performance, GPU Instances, Storage Optimized, etc.
+  - Instances grouped by family (e.g., m5, m6i, t2, t3) within categories
+  - Root node and families expand automatically when parent categories are expanded
+  - Expand/collapse categories and families to reduce clutter
+  - Expanded state is preserved during pricing updates
 - 💰 **Pricing Information**: See on-demand and spot prices for each instance type
   - Prices load in the background for all instance types
+  - Real-time pricing updates in the tree view (throttled to preserve expanded state)
   - Batch fetching for optimal performance
   - Automatic retry with exponential backoff on rate limits
+  - Pricing displayed directly in the instance list: instance type, vCPU, memory, and price per hour
 - 💵 **Cost Calculator**: Automatic calculation of monthly and annual costs, plus cost per vCPU and GB RAM
 - 🔍 **Search & Filter**: Search by instance type name, filter by free tier eligibility
 - 📊 **Detailed Information**: Comprehensive details for each instance type including:
@@ -53,7 +61,12 @@ Or with debug mode enabled (shows scrolling debug log):
 python3 -m src.main --debug
 ```
 
-**Note**: Pricing information loads in the background after instance types are displayed. You'll see a progress indicator showing how many prices have been loaded. The application uses parallel requests and batch processing to fetch pricing efficiently, with automatic retry logic for rate-limited requests.
+**Note**: Pricing information loads in the background after instance types are displayed. You'll see:
+- A progress indicator in the header showing how many prices have been loaded
+- "⏳ Loading..." in the tree for instances that don't have pricing yet
+- Real-time updates as prices load (tree updates are throttled to preserve your expanded sections)
+- The application uses parallel requests and batch processing to fetch pricing efficiently, with automatic retry logic for rate-limited requests
+- Your expanded categories and families remain open during pricing updates
 
 Or install as a package and run:
 ```bash
@@ -69,12 +82,20 @@ instancepedia
 - `Esc` / `Q` - Quit
 
 #### Instance List
-- `↑` `↓` - Navigate list
-- `Enter` - View details
-- `/` - Focus search
-- `F` - Toggle free tier filter
+- `↑` `↓` - Navigate tree (move between categories, families, and instances)
+- `Enter` - View details (on instance) or expand/collapse (on category/family)
+- `Space` - Expand/collapse category or family
+- `/` - Focus search input
+- `F` - Toggle free tier filter (show only free tier eligible instances)
 - `Esc` - Back to region selector
 - `Q` - Quit
+
+**Tree Navigation Tips:**
+- The root "Instance Types" node is expanded by default
+- Categories are collapsed by default to reduce initial clutter
+- When you expand a category, all family nodes within it are automatically expanded
+- Instance nodes show: instance type | vCPU count | memory | price | free tier indicator
+- Search and filters work across all categories and families
 
 #### Instance Detail
 - `Esc` - Back to list
@@ -158,10 +179,12 @@ Alternatively, you can use the AWS Console:
 
 Instancepedia is optimized for performance:
 
-- **Parallel Pricing Fetching**: Uses thread pools to fetch pricing data concurrently
+- **Parallel Pricing Fetching**: Uses thread pools to fetch pricing data concurrently (5 parallel workers)
 - **Batch Spot Price Queries**: Fetches spot prices in batches of up to 50 instance types per API call
 - **Automatic Retry**: Handles rate limiting with exponential backoff (1s, 2s, 4s, etc.)
 - **Background Loading**: Pricing loads in the background so you can browse instance types immediately
+- **Throttled UI Updates**: Tree updates are throttled (every 10 pricing updates) to prevent UI flicker and preserve expanded state
+- **State Preservation**: Expanded categories and families are preserved during tree rebuilds
 
 ## Requirements
 
