@@ -1,6 +1,6 @@
 # Instancepedia - EC2 Instance Type Browser
 
-A Terminal User Interface (TUI) application for browsing AWS EC2 instance types with detailed information and free tier eligibility.
+A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for browsing AWS EC2 instance types with detailed information and free tier eligibility. Use the interactive TUI for exploration or the CLI for scripting and automation.
 
 ![Instance List Screen](https://raw.githubusercontent.com/pfrederiksen/instancepedia/main/screenshots/screenshot-instance-list.png)
 
@@ -10,6 +10,7 @@ A Terminal User Interface (TUI) application for browsing AWS EC2 instance types 
 
 ## Features
 
+### TUI Mode (Interactive)
 - 🗺️ **Region Selection**: Browse instance types for any AWS region you have access to
 - 📋 **Categorized Instance List**: View all available EC2 instance types organized by family and category
   - Hierarchical tree structure: Categories → Families → Instances
@@ -36,6 +37,16 @@ A Terminal User Interface (TUI) application for browsing AWS EC2 instance types 
 - 🆓 **Free Tier Indicators**: Clearly marked free tier eligible instances
 - ⚡ **Fast Navigation**: Smooth screen transitions with loading indicators
 - 🐛 **Debug Mode**: Scrolling debug log for troubleshooting (use `--debug` flag)
+
+### CLI Mode (Headless)
+- 🔧 **Scriptable**: Perfect for automation, CI/CD pipelines, and scripting
+- 📊 **Multiple Output Formats**: Table (human-readable), JSON (machine-readable), CSV (spreadsheet-friendly)
+- 🔍 **Powerful Filtering**: Search, filter by family, free tier only, and more
+- 💰 **Pricing Queries**: Get pricing information for specific instances (on-demand and spot prices)
+- 📈 **Comparison**: Compare two instance types side-by-side with detailed metrics
+- 📁 **File Output**: Save results to files for further processing
+- ⚡ **Fast**: No UI overhead, optimized for batch operations
+- 🔇 **Quiet Mode**: Suppress progress messages for clean script output
 
 ## Installation
 
@@ -72,24 +83,26 @@ After installation, configure AWS credentials (one of the following):
 
 ## Usage
 
+### TUI Mode (Interactive)
+
 After installation from PyPI, simply run:
 ```bash
 instancepedia
 ```
 
+Or explicitly launch TUI mode:
+```bash
+instancepedia --tui
+```
+
 Or with debug mode enabled (shows scrolling debug log):
 ```bash
-instancepedia --debug
+instancepedia --tui --debug
 ```
 
 If you installed from source (development mode), you can also run:
 ```bash
 python3 -m src.main
-```
-
-Or with debug mode:
-```bash
-python3 -m src.main --debug
 ```
 
 **Note**: Pricing information loads in the background after instance types are displayed. You'll see:
@@ -98,6 +111,159 @@ python3 -m src.main --debug
 - Real-time updates as prices load (tree updates are throttled to preserve your expanded sections)
 - The application uses parallel requests and batch processing to fetch pricing efficiently, with automatic retry logic for rate-limited requests
 - Your expanded categories and families remain open during pricing updates
+
+### CLI Mode (Headless)
+
+The CLI mode provides command-line access to all functionality, perfect for scripting and automation.
+
+#### List Instance Types
+
+```bash
+# List all instance types in a region
+instancepedia list --region us-east-1
+
+# List as JSON (for scripting)
+instancepedia list --region us-east-1 --format json
+
+# List as CSV (for spreadsheets)
+instancepedia list --region us-east-1 --format csv --output instances.csv
+
+# Filter by search term
+instancepedia list --region us-east-1 --search t3
+
+# Show only free tier instances
+instancepedia list --region us-east-1 --free-tier-only
+
+# Filter by instance family
+instancepedia list --region us-east-1 --family m5
+
+# Include pricing information (slower)
+instancepedia list --region us-east-1 --include-pricing
+```
+
+#### Show Instance Details
+
+```bash
+# Show detailed information for a specific instance
+instancepedia show t3.micro --region us-east-1
+
+# Show with pricing
+instancepedia show t3.micro --region us-east-1 --include-pricing
+
+# Output to file
+instancepedia show t3.micro --region us-east-1 --format json --output t3-micro.json
+```
+
+#### Search Instance Types
+
+```bash
+# Search for instances matching a term
+instancepedia search m5 --region us-east-1
+
+# Search with filters
+instancepedia search t3 --region us-east-1 --free-tier-only
+```
+
+#### Get Pricing Information
+
+```bash
+# Get pricing for a specific instance
+instancepedia pricing t3.micro --region us-east-1
+
+# Get pricing as JSON
+instancepedia pricing t3.micro --region us-east-1 --format json
+```
+
+**Example Output (table format):**
+```
+Pricing for t3.micro in us-east-1:
+
+On-Demand: $0.0104/hr
+Monthly (730 hrs): $7.59
+Annual: $91.10
+Spot: $0.0036/hr
+Spot Savings: 65.4%
+```
+
+#### List Available Regions
+
+```bash
+# List all available regions
+instancepedia regions
+
+# List as JSON
+instancepedia regions --format json
+```
+
+#### Compare Instance Types
+
+```bash
+# Compare two instance types
+instancepedia compare t3.micro t3.small --region us-east-1
+
+# Compare with pricing
+instancepedia compare t3.micro t3.small --region us-east-1 --include-pricing
+```
+
+**Example Output (table format):**
+```
++--------------------+-----------------+-----------------+
+| Property           | t3.micro        | t3.small        |
++====================+=================+=================+
+| Instance Type      | t3.micro        | t3.small        |
++--------------------+-----------------+-----------------+
+| vCPU               | 2               | 2               |
++--------------------+-----------------+-----------------+
+| Memory (GB)        | 1.0             | 2.0             |
++--------------------+-----------------+-----------------+
+| Network            | Up to 5 Gigabit | Up to 5 Gigabit |
++--------------------+-----------------+-----------------+
+| On-Demand Price/hr | $0.0104         | $0.0208         |
++--------------------+-----------------+-----------------+
+| Free Tier Eligible | Yes 🆓           | No              |
++--------------------+-----------------+-----------------+
+```
+
+#### Common Options
+
+All CLI commands support these common options:
+
+- `--region <region>` - AWS region (default: from config or us-east-1)
+- `--profile <profile>` - AWS profile name (overrides environment variable)
+- `--format <format>` - Output format: `table` (default), `json`, or `csv`
+- `--output <file>` - Write output to file instead of stdout
+- `--quiet` - Suppress progress messages (useful for scripting)
+- `--debug` - Enable debug output with tracebacks
+
+**Note**: 
+- When using `--format json`, output is valid JSON that can be piped to `jq` or parsed by other tools
+- CSV format is suitable for importing into spreadsheets
+- CLI commands return exit code 0 on success, 1 on error (useful for scripting)
+- Progress messages are sent to stderr, so output can be redirected cleanly: `instancepedia list --region us-east-1 --format json > output.json`
+
+#### Examples
+
+```bash
+# Export all free tier instances to CSV
+instancepedia list --region us-east-1 --free-tier-only --format csv --output free-tier.csv
+
+# Get pricing for multiple instances (using shell loop)
+for instance in t3.micro t3.small t3.medium; do
+  instancepedia pricing $instance --region us-east-1 --format json
+done
+
+# Find all m5 instances with pricing
+instancepedia list --region us-east-1 --family m5 --include-pricing --format json
+
+# Compare instances across different regions
+instancepedia compare t3.micro t3.small --region us-east-1 --include-pricing
+
+# Search and filter with quiet mode (for scripts)
+instancepedia search t3 --region us-east-1 --free-tier-only --format json --quiet
+
+# Get instance details as JSON for processing
+instancepedia show t3.micro --region us-east-1 --include-pricing --format json | jq '.instance.pricing'
+```
 
 ### Keyboard Shortcuts
 
@@ -202,14 +368,22 @@ Alternatively, you can use the AWS Console:
 
 ## Performance
 
-Instancepedia is optimized for performance:
+Instancepedia is optimized for performance in both TUI and CLI modes:
 
+### TUI Mode
 - **Parallel Pricing Fetching**: Uses thread pools to fetch pricing data concurrently (5 parallel workers)
 - **Batch Spot Price Queries**: Fetches spot prices in batches of up to 50 instance types per API call
 - **Automatic Retry**: Handles rate limiting with exponential backoff (1s, 2s, 4s, etc.)
 - **Background Loading**: Pricing loads in the background so you can browse instance types immediately
 - **Throttled UI Updates**: Tree updates are throttled (every 10 pricing updates) to prevent UI flicker and preserve expanded state
 - **State Preservation**: Expanded categories and families are preserved during tree rebuilds
+
+### CLI Mode
+- **Efficient Filtering**: Filters are applied in-memory after fetching, minimizing API calls
+- **Optional Pricing**: Pricing is only fetched when `--include-pricing` is specified
+- **Parallel Processing**: When fetching pricing for multiple instances, uses parallel requests (5 workers)
+- **Streaming Output**: Results are printed as they're processed (for table format)
+- **Fast JSON/CSV Export**: Direct serialization without UI overhead
 
 ## Requirements
 
@@ -220,6 +394,7 @@ Instancepedia is optimized for performance:
   - `textual>=0.40.0` - TUI framework
   - `pydantic>=2.0.0` - Data validation
   - `pydantic-settings>=2.0.0` - Settings management
+  - `tabulate>=0.9.0` - Table formatting for CLI
 
 ## Development
 
@@ -311,9 +486,34 @@ Or use the helper script:
 
 ### Running Tests
 
+The test suite includes comprehensive tests for all CLI functionality:
+
 ```bash
+# Run all tests (48 tests covering CLI commands, output formatters, and parsers)
 pytest
+
+# Run with coverage report
+pytest --cov=src --cov-report=html
+
+# Run specific test file
+pytest tests/test_cli_output.py
+pytest tests/test_cli_commands.py
+pytest tests/test_cli_parser.py
+
+# Run with verbose output
+pytest -v
+
+# Run tests without coverage (faster)
+pytest --no-cov
 ```
+
+**Test Coverage:**
+- ✅ Output formatters (Table, JSON, CSV) - 24 tests
+- ✅ CLI command handlers - 9 tests  
+- ✅ Argument parser - 15 tests
+- ✅ All tests use mocking to avoid requiring AWS credentials
+
+The test suite validates all CLI functionality including error handling, output formatting, and command parsing.
 
 ## Project Structure
 
@@ -321,9 +521,14 @@ pytest
 instancepedia/
 ├── src/                      # Source code
 │   ├── __init__.py
-│   ├── app.py                # Main application
-│   ├── main.py               # Entry point
+│   ├── app.py                # Main TUI application
+│   ├── main.py               # Entry point (supports both TUI and CLI)
 │   ├── debug.py              # Debug utilities
+│   ├── cli/                  # CLI module (headless mode)
+│   │   ├── __init__.py
+│   │   ├── commands.py       # CLI command handlers
+│   │   ├── output.py         # Output formatters (table, JSON, CSV)
+│   │   └── parser.py         # Argument parser
 │   ├── config/               # Configuration
 │   │   ├── __init__.py
 │   │   └── settings.py       # Configuration settings
@@ -343,6 +548,12 @@ instancepedia/
 │       ├── instance_detail.py
 │       ├── instance_list.py
 │       └── region_selector.py
+├── tests/                    # Test suite
+│   ├── __init__.py
+│   ├── conftest.py           # Pytest fixtures
+│   ├── test_cli_commands.py  # CLI command tests
+│   ├── test_cli_output.py    # Output formatter tests
+│   └── test_cli_parser.py    # Argument parser tests
 ├── scripts/                  # Utility scripts
 │   ├── publish.sh            # PyPI publishing helper
 │   └── release.sh            # Release automation script
