@@ -28,12 +28,14 @@ error() { echo -e "${RED}✗${NC} $1"; }
 # Function to extract current version from pyproject.toml
 get_current_version() {
     local version_line=$(grep -E '^\s*version\s*=' "$PYPROJECT_FILE" | head -1)
+    # Remove leading whitespace and extract version
+    version_line=$(echo "$version_line" | sed 's/^[[:space:]]*//')
     if echo "$version_line" | grep -q '"'; then
-        echo "$version_line" | sed -E 's/.*version\s*=\s*"(.*)".*/\1/'
+        echo "$version_line" | sed -E 's/^version\s*=\s*"(.*)".*/\1/'
     elif echo "$version_line" | grep -q "'"; then
-        echo "$version_line" | sed -E "s/.*version\s*=\s*'(.*)'.*/\1/"
+        echo "$version_line" | sed -E "s/^version\s*=\s*'(.*)'.*/\1/"
     else
-        echo "$version_line" | sed -E 's/.*version\s*=\s*(.*)/\1/' | tr -d ' '
+        echo "$version_line" | sed -E 's/^version\s*=\s*(.*)/\1/' | tr -d ' '
     fi
 }
 
