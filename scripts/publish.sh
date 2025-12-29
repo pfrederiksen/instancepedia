@@ -13,6 +13,23 @@ if [[ "$REPOSITORY" != "testpypi" && "$REPOSITORY" != "pypi" ]]; then
     exit 1
 fi
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+# Activate venv if it exists
+if [ -d "venv" ]; then
+    source venv/bin/activate
+    echo "✓ Using virtual environment"
+fi
+
+# Ensure build tools are installed
+if ! python3 -m build --version >/dev/null 2>&1; then
+    echo "📦 Installing build tools..."
+    python3 -m pip install --upgrade build twine --quiet
+fi
+
 echo "🚀 Publishing instancepedia to $REPOSITORY..."
 echo ""
 
