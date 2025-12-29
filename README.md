@@ -238,6 +238,40 @@ pip install -e ".[dev]"
 
 This installs the package in editable mode along with development tools (build, twine, pytest).
 
+### Creating Releases
+
+Releases are automated using the release script. The script handles version bumping, git tagging, and triggering GitHub releases.
+
+**Prerequisites:**
+- Be on the `main` branch
+- Have a clean working directory (no uncommitted changes)
+- Be up to date with the remote repository
+
+**Usage:**
+
+```bash
+# Bump patch version (0.1.1 -> 0.1.2)
+./scripts/release.sh patch
+
+# Bump minor version (0.1.1 -> 0.2.0)
+./scripts/release.sh minor
+
+# Bump major version (0.1.1 -> 1.0.0)
+./scripts/release.sh major
+
+# Use a specific version
+./scripts/release.sh 0.2.0
+```
+
+The script will:
+1. Update the version in `pyproject.toml`
+2. Create a commit with the version bump
+3. Create an annotated git tag (e.g., `v0.1.2`)
+4. Push the commit to `main`
+5. Push the tag (which automatically triggers the GitHub Actions workflow to create a GitHub release)
+
+**Note:** After creating a release, you can publish to PyPI using the publish script (see below).
+
 ### Building and Publishing
 
 To build the package for PyPI:
@@ -310,7 +344,8 @@ instancepedia/
 │       ├── instance_list.py
 │       └── region_selector.py
 ├── scripts/                  # Utility scripts
-│   └── publish.sh            # PyPI publishing helper
+│   ├── publish.sh            # PyPI publishing helper
+│   └── release.sh            # Release automation script
 ├── screenshots/              # Application screenshots
 ├── .gitignore               # Git ignore rules
 ├── LICENSE                  # MIT License
