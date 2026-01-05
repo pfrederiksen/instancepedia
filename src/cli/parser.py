@@ -85,6 +85,11 @@ Examples:
         action="store_true",
         help="Run in TUI mode (interactive terminal UI)"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug output"
+    )
     
     subparsers = parser.add_subparsers(dest="command", help="Available commands", metavar="COMMAND")
     
