@@ -621,7 +621,7 @@ class LoadingScreen(Screen):
 
     def __init__(self, region: str = "", app: 'InstancepediaApp' = None):
         super().__init__()
-        self.region = region
+        self._region = region  # Use _region to avoid conflict with Screen.region property
         self.status_text = "Initializing..."
         self.app_ref = app
 
@@ -630,8 +630,8 @@ class LoadingScreen(Screen):
         DebugLog.log("LoadingScreen.compose() called")
         yield Static("Loading instance types...", id="loading-text")
         yield Static("Please wait...", id="loading-subtext")
-        if self.region:
-            yield Static(f"Region: {self.region}", id="loading-region")
+        if self._region:
+            yield Static(f"Region: {self._region}", id="loading-region")
         yield LoadingIndicator(id="loading-indicator")
         # Add debug pane if enabled
         if DebugLog.is_enabled():
