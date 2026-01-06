@@ -1,8 +1,17 @@
 """AWS client wrapper"""
 
 import boto3
+import logging
 from typing import Optional
 from botocore.exceptions import ClientError, NoCredentialsError, BotoCoreError
+
+from src.exceptions import (
+    AWSCredentialsError,
+    AWSConnectionError,
+    AWSRegionError
+)
+
+logger = logging.getLogger("instancepedia")
 
 
 class AWSClient:
@@ -34,15 +43,17 @@ class AWSClient:
             try:
                 session = self._get_session()
                 self._ec2_client = session.client("ec2", region_name=self.region)
-            except NoCredentialsError:
-                raise ValueError(
+            except NoCredentialsError as e:
+                logger.error("AWS credentials not found")
+                raise AWSCredentialsError(
                     "AWS credentials not found. Please configure credentials using:\n"
                     "  - AWS CLI: aws configure\n"
                     "  - Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY\n"
                     "  - Or specify a profile with --profile"
-                )
-            except Exception as e:
-                raise ValueError(f"Failed to create AWS client: {str(e)}")
+                ) from e
+            except (ClientError, BotoCoreError) as e:
+                logger.error(f"Failed to create EC2 client: {e}")
+                raise AWSConnectionError(f"Failed to create EC2 client: {str(e)}") from e
         return self._ec2_client
 
     @property
@@ -53,15 +64,17 @@ class AWSClient:
                 session = self._get_session()
                 # Pricing API is only available in us-east-1 and ap-south-1
                 self._pricing_client = session.client("pricing", region_name="us-east-1")
-            except NoCredentialsError:
-                raise ValueError(
+            except NoCredentialsError as e:
+                logger.error("AWS credentials not found")
+                raise AWSCredentialsError(
                     "AWS credentials not found. Please configure credentials using:\n"
                     "  - AWS CLI: aws configure\n"
                     "  - Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY\n"
                     "  - Or specify a profile with --profile"
-                )
-            except Exception as e:
-                raise ValueError(f"Failed to create Pricing API client: {str(e)}")
+                ) from e
+            except (ClientError, BotoCoreError) as e:
+                logger.error(f"Failed to create Pricing API client: {e}")
+                raise AWSConnectionError(f"Failed to create Pricing API client: {str(e)}") from e
         return self._pricing_client
 
     def test_connection(self) -> bool:
@@ -76,9 +89,13 @@ class AWSClient:
         """
         Get list of regions that are enabled and accessible to the current AWS account.
         Only returns regions the account can actually use (not opt-in required or disabled).
-        
+
         Returns:
             List of region codes that are accessible
+
+        Raises:
+            AWSCredentialsError: If credentials are missing or invalid
+            AWSConnectionError: If unable to connect to AWS
         """
         try:
             # Use a default region to query for accessible regions
@@ -88,8 +105,12 @@ class AWSClient:
             # This avoids trying to access regions that require opt-in or are disabled
             response = ec2.describe_regions()
             accessible_regions = [region["RegionName"] for region in response["Regions"]]
+            logger.debug(f"Found {len(accessible_regions)} accessible regions")
             return accessible_regions
-        except Exception as e:
-            # If we can't get the list, return empty and let the app handle it
-            return []
+        except NoCredentialsError as e:
+            logger.error("AWS credentials not found when listing regions")
+            raise AWSCredentialsError("AWS credentials not found") from e
+        except (ClientError, BotoCoreError) as e:
+            logger.error(f"Failed to get accessible regions: {e}")
+            raise AWSConnectionError(f"Failed to get accessible regions: {str(e)}") from e
 
