@@ -5,14 +5,12 @@ from textual.containers import Container, Vertical, ScrollableContainer
 from textual.widgets import Static, Label
 from textual.screen import Screen
 from textual import events
-from threading import Thread
 
 from src.models.instance_type import InstanceType
 from src.services.free_tier_service import FreeTierService
-from src.services.aws_client import AWSClient
-from src.services.pricing_service import PricingService
+from src.services.async_aws_client import AsyncAWSClient
+from src.services.async_pricing_service import AsyncPricingService
 from src.debug import DebugLog, DebugPane
-from textual.containers import Vertical
 
 
 class InstanceDetail(Screen):
@@ -198,22 +196,23 @@ class InstanceDetail(Screen):
     def _fetch_spot_price_if_needed(self) -> None:
         """Fetch spot price for this instance if not already loaded"""
         inst = self.instance_type
-        
+
         # Only fetch if we have on-demand price but no spot price yet
         if inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.spot_price is None:
-            # Fetch spot price in background thread
-            def fetch_spot_price():
+
+            async def fetch_spot_price():
+                """Async worker to fetch spot price"""
                 try:
                     # Get region and settings from app
                     if hasattr(self.app, 'current_region') and self.app.current_region:
                         region = self.app.current_region
                         profile = self.app.settings.aws_profile if hasattr(self.app, 'settings') else None
-                        
+
                         DebugLog.log(f"Fetching spot price for {inst.instance_type} in {region}")
-                        aws_client = AWSClient(region, profile)
-                        pricing_service = PricingService(aws_client)
-                        spot_price = pricing_service.get_spot_price(inst.instance_type, region)
-                        
+                        async_client = AsyncAWSClient(region, profile)
+                        pricing_service = AsyncPricingService(async_client)
+                        spot_price = await pricing_service.get_spot_price(inst.instance_type, region)
+
                         # Update the instance pricing
                         if inst.pricing:
                             inst.pricing.spot_price = spot_price
@@ -223,24 +222,21 @@ class InstanceDetail(Screen):
                                 on_demand_price=None,
                                 spot_price=spot_price
                             )
-                        
-                        # Update the UI
-                        def update_ui():
-                            try:
-                                self._render_details()
-                            except Exception as e:
-                                DebugLog.log(f"Error updating UI after spot price fetch: {e}")
-                        
-                        self.app.call_from_thread(update_ui)
+
+                        # Update the UI (we're already on the main thread in async context)
+                        try:
+                            self._render_details()
+                        except Exception as e:
+                            DebugLog.log(f"Error updating UI after spot price fetch: {e}")
+
                         DebugLog.log(f"Spot price for {inst.instance_type}: {spot_price}")
                     else:
-                        DebugLog.log(f"Cannot fetch spot price: region not set")
+                        DebugLog.log("Cannot fetch spot price: region not set")
                 except Exception as e:
                     DebugLog.log(f"Error fetching spot price for {inst.instance_type}: {e}")
-            
-            # Start fetch in background thread
-            thread = Thread(target=fetch_spot_price, daemon=True)
-            thread.start()
+
+            # Run async fetch as a worker
+            self.app.run_worker(fetch_spot_price, exit_on_error=False)
 
     def action_back(self) -> None:
         """Go back to instance list"""

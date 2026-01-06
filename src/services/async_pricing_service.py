@@ -1,0 +1,298 @@
+"""Async EC2 pricing service using aioboto3"""
+
+import asyncio
+import json
+from typing import Optional, Dict, List
+from decimal import Decimal
+from botocore.exceptions import ClientError, BotoCoreError
+
+from src.services.async_aws_client import AsyncAWSClient
+from src.debug import DebugLog
+
+
+# Region code to Pricing API location name mapping
+REGION_MAP = {
+    'us-east-1': 'US East (N. Virginia)',
+    'us-east-2': 'US East (Ohio)',
+    'us-west-1': 'US West (N. California)',
+    'us-west-2': 'US West (Oregon)',
+    'af-south-1': 'Africa (Cape Town)',
+    'ap-east-1': 'Asia Pacific (Hong Kong)',
+    'ap-south-1': 'Asia Pacific (Mumbai)',
+    'ap-south-2': 'Asia Pacific (Hyderabad)',
+    'ap-northeast-1': 'Asia Pacific (Tokyo)',
+    'ap-northeast-2': 'Asia Pacific (Seoul)',
+    'ap-northeast-3': 'Asia Pacific (Osaka)',
+    'ap-southeast-1': 'Asia Pacific (Singapore)',
+    'ap-southeast-2': 'Asia Pacific (Sydney)',
+    'ap-southeast-3': 'Asia Pacific (Jakarta)',
+    'ap-southeast-4': 'Asia Pacific (Melbourne)',
+    'ca-central-1': 'Canada (Central)',
+    'eu-central-1': 'EU (Frankfurt)',
+    'eu-central-2': 'EU (Zurich)',
+    'eu-west-1': 'EU (Ireland)',
+    'eu-west-2': 'EU (London)',
+    'eu-west-3': 'EU (Paris)',
+    'eu-north-1': 'EU (Stockholm)',
+    'eu-south-1': 'EU (Milan)',
+    'eu-south-2': 'EU (Spain)',
+    'me-south-1': 'Middle East (Bahrain)',
+    'me-central-1': 'Middle East (UAE)',
+    'il-central-1': 'Israel (Tel Aviv)',
+    'sa-east-1': 'South America (Sao Paulo)',
+}
+
+
+class AsyncPricingService:
+    """Async service for fetching EC2 instance pricing"""
+
+    def __init__(self, aws_client: AsyncAWSClient):
+        """
+        Initialize async pricing service
+
+        Args:
+            aws_client: Async AWS client wrapper
+        """
+        self.aws_client = aws_client
+
+    async def get_on_demand_price(
+        self,
+        instance_type: str,
+        region: str,
+        max_retries: int = 3
+    ) -> Optional[float]:
+        """
+        Get on-demand price for an instance type in a region
+
+        Args:
+            instance_type: EC2 instance type (e.g., 't3.micro')
+            region: AWS region code (e.g., 'us-east-1')
+            max_retries: Maximum number of retries for rate limiting
+
+        Returns:
+            Price per hour in USD, or None if not available
+        """
+        pricing_region = REGION_MAP.get(region)
+        if not pricing_region:
+            DebugLog.log(f"Warning: Region {region} not in pricing region map")
+            return None
+
+        for attempt in range(max_retries + 1):
+            try:
+                async with self.aws_client.get_pricing_client() as pricing:
+                    filters = [
+                        {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
+                        {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
+                        {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
+                        {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
+                        {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
+                    ]
+
+                    response = await pricing.get_products(
+                        ServiceCode='AmazonEC2',
+                        Filters=filters,
+                        MaxResults=10
+                    )
+
+                    if not response.get('PriceList'):
+                        return None
+
+                    # Parse results and find best price
+                    best_price = None
+                    for price_list_item in response['PriceList']:
+                        price_data = json.loads(price_list_item)
+                        price = self._extract_price(price_data, pricing_region)
+                        if price is not None and (best_price is None or price < best_price):
+                            best_price = price
+
+                    if best_price is not None and best_price > 0:
+                        DebugLog.log(f"Found price for {instance_type}: ${best_price}/hr")
+                        return best_price
+
+                    return None
+
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "Unknown")
+                if error_code in ("Throttling", "ThrottlingException") or "429" in str(e):
+                    if attempt < max_retries:
+                        wait_time = (2 ** attempt) + (attempt * 0.5)
+                        DebugLog.log(f"Rate limited for {instance_type}, retrying in {wait_time:.1f}s")
+                        await asyncio.sleep(wait_time)
+                        continue
+                DebugLog.log(f"Pricing API error for {instance_type}: {error_code}")
+                return None
+            except Exception as e:
+                if attempt < max_retries:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                DebugLog.log(f"Error fetching price for {instance_type}: {e}")
+                return None
+
+        return None
+
+    def _extract_price(self, price_data: dict, pricing_region: str) -> Optional[float]:
+        """Extract USD price from pricing API response"""
+        try:
+            # Verify location matches
+            attributes = price_data.get('product', {}).get('attributes', {})
+            location = attributes.get('location', '')
+            if pricing_region.lower() not in location.lower():
+                return None
+
+            terms = price_data.get('terms', {})
+            on_demand = terms.get('OnDemand', {})
+            if not on_demand:
+                return None
+
+            term_key = list(on_demand.keys())[0]
+            price_dimensions = on_demand[term_key].get('priceDimensions', {})
+
+            for dimension_data in price_dimensions.values():
+                unit = dimension_data.get('unit', '')
+                price_per_unit = dimension_data.get('pricePerUnit', {})
+                usd_price = price_per_unit.get('USD')
+
+                if usd_price and ('Hrs' in unit or 'Hr' in unit or unit == ''):
+                    price = float(Decimal(usd_price))
+                    if price > 0:
+                        return price
+
+            return None
+        except Exception:
+            return None
+
+    async def get_spot_price(self, instance_type: str, region: str) -> Optional[float]:
+        """
+        Get current spot price for an instance type in a region
+
+        Args:
+            instance_type: EC2 instance type (e.g., 't3.micro')
+            region: AWS region code (e.g., 'us-east-1')
+
+        Returns:
+            Current spot price per hour in USD, or None if not available
+        """
+        try:
+            async with self.aws_client.get_ec2_client() as ec2:
+                response = await ec2.describe_spot_price_history(
+                    InstanceTypes=[instance_type],
+                    ProductDescriptions=['Linux/UNIX'],
+                    MaxResults=1
+                )
+
+                if not response.get('SpotPriceHistory'):
+                    return None
+
+                latest = response['SpotPriceHistory'][0]
+                return float(latest['SpotPrice'])
+
+        except Exception:
+            return None
+
+    async def get_on_demand_prices_batch(
+        self,
+        instance_types: List[str],
+        region: str,
+        concurrency: int = 10,
+        progress_callback=None,
+        price_callback=None
+    ) -> Dict[str, Optional[float]]:
+        """
+        Get on-demand prices for multiple instance types concurrently
+
+        Args:
+            instance_types: List of EC2 instance types
+            region: AWS region code
+            concurrency: Maximum concurrent requests (default 10)
+            progress_callback: Optional callback(completed, total) for progress updates
+            price_callback: Optional callback(instance_type, price) called when each price is fetched
+
+        Returns:
+            Dictionary mapping instance_type to price (or None)
+        """
+        semaphore = asyncio.Semaphore(concurrency)
+        results = {}
+        completed = 0
+        total = len(instance_types)
+
+        async def fetch_with_semaphore(inst_type: str):
+            nonlocal completed
+            async with semaphore:
+                # Small delay to avoid rate limiting
+                await asyncio.sleep(0.05)
+                price = await self.get_on_demand_price(inst_type, region)
+                results[inst_type] = price
+                completed += 1
+                # Call price callback first so instance is updated before progress callback
+                if price_callback:
+                    price_callback(inst_type, price)
+                if progress_callback:
+                    progress_callback(completed, total)
+                return price
+
+        # Create tasks for all instance types
+        tasks = [fetch_with_semaphore(inst_type) for inst_type in instance_types]
+
+        # Run all tasks concurrently
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        return results
+
+    async def get_spot_prices_batch(
+        self,
+        instance_types: List[str],
+        region: str
+    ) -> Dict[str, Optional[float]]:
+        """
+        Get spot prices for multiple instance types (uses EC2 batch API)
+
+        Args:
+            instance_types: List of EC2 instance types
+            region: AWS region code
+
+        Returns:
+            Dictionary mapping instance_type to spot price (or None)
+        """
+        result = {}
+        timestamps = {}
+
+        try:
+            async with self.aws_client.get_ec2_client() as ec2:
+                # Process in chunks (EC2 API limit is ~50 instance types)
+                chunk_size = 50
+                for i in range(0, len(instance_types), chunk_size):
+                    chunk = instance_types[i:i + chunk_size]
+
+                    next_token = None
+                    while True:
+                        request_params = {
+                            'InstanceTypes': chunk,
+                            'ProductDescriptions': ['Linux/UNIX'],
+                            'MaxResults': 1000
+                        }
+                        if next_token:
+                            request_params['NextToken'] = next_token
+
+                        response = await ec2.describe_spot_price_history(**request_params)
+
+                        for price_data in response.get('SpotPriceHistory', []):
+                            inst_type = price_data['InstanceType']
+                            timestamp = price_data['Timestamp']
+
+                            if inst_type not in result or timestamp > timestamps.get(inst_type, timestamp):
+                                result[inst_type] = float(price_data['SpotPrice'])
+                                timestamps[inst_type] = timestamp
+
+                        next_token = response.get('NextToken')
+                        if not next_token:
+                            break
+
+        except Exception as e:
+            DebugLog.log(f"Error in get_spot_prices_batch: {e}")
+
+        # Ensure all instance types are in result
+        for inst_type in instance_types:
+            if inst_type not in result:
+                result[inst_type] = None
+
+        return result
