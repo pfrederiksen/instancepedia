@@ -347,8 +347,8 @@ class TestInstanceDetailSpotPriceFetch:
             pricing=PricingInfo(on_demand_price=0.096, spot_price=None)
         )
 
-    @patch('src.ui.instance_detail.AWSClient')
-    @patch('src.ui.instance_detail.PricingService')
+    @patch('src.ui.instance_detail.AsyncAWSClient')
+    @patch('src.ui.instance_detail.AsyncPricingService')
     async def test_spot_price_fetch_triggered(
         self, mock_pricing_service, mock_aws_client, instance_no_spot
     ):
@@ -357,7 +357,10 @@ class TestInstanceDetailSpotPriceFetch:
         mock_aws_client.return_value = mock_client_instance
 
         mock_service_instance = Mock()
-        mock_service_instance.get_spot_price.return_value = 0.038
+        # Make get_spot_price return an awaitable
+        async def mock_get_spot_price(*args, **kwargs):
+            return 0.038
+        mock_service_instance.get_spot_price = mock_get_spot_price
         mock_pricing_service.return_value = mock_service_instance
 
         app = InstanceDetailTestApp(instance_no_spot)
@@ -367,4 +370,4 @@ class TestInstanceDetailSpotPriceFetch:
             await pilot.pause()
 
             # Spot price fetch should have been triggered
-            # (runs in background thread)
+            # (runs as async worker)
