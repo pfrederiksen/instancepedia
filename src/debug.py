@@ -1,31 +1,31 @@
-"""Debug logging utility"""
+"""Debug logging utility - backwards compatibility wrapper"""
 
-from typing import List, Optional
+from typing import List
+import logging
+from src.logging_config import get_logger, get_tui_handler, enable_debug as enable_debug_logging
 from textual.widgets import Static, RichLog
 from textual.containers import Container, ScrollableContainer
 
 
 class DebugLog:
-    """Singleton debug log"""
-    _instance: Optional['DebugLog'] = None
+    """
+    Backwards compatibility wrapper for legacy DebugLog calls.
+    Delegates to proper logging system.
+    """
     _enabled: bool = False
-    _messages: List[str] = []
-    _max_messages: int = 1000  # Increased for scrolling log
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     @classmethod
     def enable(cls) -> None:
         """Enable debug logging"""
         cls._enabled = True
+        enable_debug_logging()
 
     @classmethod
     def disable(cls) -> None:
         """Disable debug logging"""
         cls._enabled = False
+        logger = get_logger()
+        logger.setLevel(logging.INFO)
 
     @classmethod
     def is_enabled(cls) -> bool:
@@ -34,37 +34,24 @@ class DebugLog:
 
     @classmethod
     def log(cls, message: str) -> None:
-        """Log a debug message"""
-        if not cls._enabled:
-            return
-        
-        import datetime
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        log_message = f"[{timestamp}] {message}"
-        cls._messages.append(log_message)
-        
-        # Keep only the last N messages (increase for scrolling log)
-        if len(cls._messages) > cls._max_messages:
-            cls._messages = cls._messages[-cls._max_messages:]
-        
-        # If there's a debug pane, try to update it
-        try:
-            if cls._instance and hasattr(cls._instance, '_debug_pane') and cls._instance._debug_pane:
-                cls._instance._debug_pane._update_debug_pane()
-        except Exception:
-            pass  # Ignore errors
+        """Log a debug message (delegates to logging system)"""
+        logger = get_logger()
+        logger.debug(message)
 
     @classmethod
     def get_messages(cls) -> List[str]:
-        """Get all debug messages"""
-        return cls._messages.copy()
+        """Get all debug messages from TUI handler"""
+        handler = get_tui_handler()
+        if handler:
+            return handler.get_messages()
+        return []
 
     @classmethod
     def clear(cls) -> None:
         """Clear debug messages"""
-        cls._messages.clear()
-        if hasattr(cls._instance, '_debug_pane'):
-            cls._instance._update_debug_pane()
+        handler = get_tui_handler()
+        if handler:
+            handler.clear()
 
 
 class DebugPane(Container):
@@ -72,11 +59,11 @@ class DebugPane(Container):
 
     def __init__(self):
         super().__init__(id="debug-pane")
-        self._debug_log = DebugLog()
         self._last_message_count = 0  # Track how many messages we've added
-        # Store reference to this pane in the debug log instance
-        if DebugLog._instance:
-            DebugLog._instance._debug_pane = self
+        # Register this pane with the TUI handler
+        handler = get_tui_handler()
+        if handler:
+            handler.set_debug_pane(self)
 
     CSS = """
     #debug-pane {
@@ -108,29 +95,30 @@ class DebugPane(Container):
 
     def on_mount(self) -> None:
         """Update debug pane when mounted"""
-        # Store reference
-        if DebugLog._instance:
-            DebugLog._instance._debug_pane = self
-        
+        # Register with TUI handler
+        handler = get_tui_handler()
+        if handler:
+            handler.set_debug_pane(self)
+
         # Initialize with existing messages
         try:
-            messages = self._debug_log.get_messages()
+            messages = DebugLog.get_messages()
             debug_log = self.query_one("#debug-log", RichLog)
             for msg in messages:
                 debug_log.write(msg)
             self._last_message_count = len(messages)
         except Exception:
             self._last_message_count = 0
-        
+
         # Set up a timer to periodically update
         self.set_interval(0.1, self._update_debug_pane)  # Update more frequently
 
     def _update_debug_pane(self) -> None:
         """Update the debug pane content"""
         try:
-            messages = self._debug_log.get_messages()
+            messages = DebugLog.get_messages()
             debug_log = self.query_one("#debug-log", RichLog)
-            
+
             # Handle case where messages were trimmed and _last_message_count is out of sync
             # If messages were trimmed, we need to reset and repopulate
             if self._last_message_count > len(messages):
@@ -158,7 +146,7 @@ class DebugPane(Container):
                 debug_log = self.query_one("#debug-log", RichLog)
                 # Clear and repopulate
                 debug_log.clear()
-                messages = self._debug_log.get_messages()
+                messages = DebugLog.get_messages()
                 for msg in messages:
                     debug_log.write(msg)
                 self._last_message_count = len(messages)
