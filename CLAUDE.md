@@ -105,8 +105,32 @@ The CLI provides the following commands for users:
 - `cost-estimate` - Calculate cost estimates with different usage patterns
 - `compare-regions` - Compare pricing across multiple regions
 - `compare-family` - Compare all instances within a family
+- `presets list` - List available filter presets (built-in and custom)
+- `presets apply` - Apply a filter preset to list instances
 - `cache stats` - Show cache statistics
 - `cache clear` - Clear cache entries
+
+### Filter Presets
+
+Filter presets allow users to quickly apply common filtering scenarios. Built-in presets include:
+- `web-server` - 4+ vCPU, 8+ GB RAM, current generation
+- `database` - Memory-optimized, 8+ vCPU, 32+ GB RAM
+- `compute-intensive` - Compute-optimized, 16+ vCPU
+- `gpu-ml` - GPU instances for machine learning
+- `arm-graviton` - ARM-based instances
+- `burstable` - T-series burstable instances
+- `free-tier` - Free tier eligible instances
+- `small-dev` - Small instances for development (1-2 vCPU, up to 4 GB RAM)
+
+Presets are defined in `src/services/filter_preset_service.py` and stored in `~/.instancepedia/presets/filter_presets.json` for custom presets.
+
+### EBS Recommendations
+
+The `EbsRecommendationService` provides volume type recommendations based on instance EBS capabilities:
+- Analyzes instance EBS optimization level and throughput
+- Recommends appropriate volume types (gp3, io2, st1, etc.)
+- Shows IOPS ranges, throughput specs, and use cases
+- Integrated into both TUI instance detail and CLI `show` command
 
 All commands are implemented in `src/cli/commands.py` with argument parsing in `src/cli/parser.py`.
 

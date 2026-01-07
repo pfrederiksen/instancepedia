@@ -78,6 +78,8 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 - 💵 **Cost Calculator**: Estimate costs with different usage patterns and pricing models
 - 🌍 **Multi-Region Comparison**: Compare pricing across multiple regions
 - 👨‍👩‍👧‍👦 **Family Comparison**: Compare all instances within a family (e.g., all t3.* instances)
+- 🎯 **Filter Presets**: Built-in presets for common use cases (web-server, database, gpu-ml, etc.)
+- 💾 **EBS Recommendations**: Volume type recommendations based on instance EBS capabilities
 - 📁 **File Output**: Save results to files for further processing
 - ⚡ **Fast**: No UI overhead, optimized for batch operations
 - 🔇 **Quiet Mode**: Suppress progress messages for clean script output
@@ -353,6 +355,11 @@ instancepedia compare-regions t3.micro --regions us-east-1,us-west-2,eu-west-1,a
 # Compare all instances in a family
 instancepedia compare-family t3 --region us-east-1 --include-pricing --sort-by price
 instancepedia compare-family m6i --region us-east-1 --include-pricing --sort-by vcpu
+
+# Use filter presets for common scenarios
+instancepedia presets list
+instancepedia presets apply web-server --region us-east-1 --include-pricing
+instancepedia presets apply database --region us-east-1 --format json
 ```
 
 ### Keyboard Shortcuts

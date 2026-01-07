@@ -289,6 +289,36 @@ Examples:
     )
     compare_family_parser.set_defaults(func=commands.cmd_compare_family)
 
+    # Filter presets command
+    presets_parser = subparsers.add_parser("presets", help="Manage filter presets")
+    presets_subparsers = presets_parser.add_subparsers(dest="presets_command", help="Preset commands")
+
+    # Presets list subcommand
+    presets_list_parser = presets_subparsers.add_parser("list", help="List available filter presets")
+    presets_list_parser.add_argument(
+        "--format",
+        type=str,
+        choices=["table", "json"],
+        default="table",
+        help="Output format (default: table)"
+    )
+    presets_list_parser.set_defaults(func=commands.cmd_presets_list)
+
+    # Presets apply subcommand
+    presets_apply_parser = presets_subparsers.add_parser("apply", help="Apply a filter preset")
+    add_common_args(presets_apply_parser)
+    presets_apply_parser.add_argument(
+        "preset_name",
+        type=str,
+        help="Name of the preset to apply"
+    )
+    presets_apply_parser.add_argument(
+        "--include-pricing",
+        action="store_true",
+        help="Include pricing information"
+    )
+    presets_apply_parser.set_defaults(func=commands.cmd_presets_apply)
+
     # Cache command
     cache_parser = subparsers.add_parser("cache", help="Manage pricing cache")
     cache_subparsers = cache_parser.add_subparsers(dest="cache_command", help="Cache commands")
