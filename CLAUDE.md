@@ -351,6 +351,97 @@ def test_concurrent_writes(cache):
     assert final_price in results
 ```
 
+## AWS Client Configuration
+
+### Timeout Configuration
+
+AWS API clients support configurable timeouts to handle slow networks and improve reliability:
+
+**Settings** (`src/config/settings.py`):
+```python
+class Settings(BaseSettings):
+    aws_connect_timeout: int = 10  # Connection timeout in seconds
+    aws_read_timeout: int = 60     # Read timeout for AWS APIs
+    pricing_read_timeout: int = 90  # Read timeout for Pricing API (slower)
+```
+
+**Environment Variables**:
+- `INSTANCEPEDIA_AWS_CONNECT_TIMEOUT` - Connection timeout
+- `INSTANCEPEDIA_AWS_READ_TIMEOUT` - AWS API read timeout
+- `INSTANCEPEDIA_PRICING_READ_TIMEOUT` - Pricing API read timeout
+
+**Implementation**:
+- Both `AWSClient` and `AsyncAWSClient` accept timeout parameters
+- All boto3/aioboto3 clients configured with `botocore.config.Config`:
+  ```python
+  config = Config(
+      connect_timeout=connect_timeout,
+      read_timeout=read_timeout,
+      retries={'max_attempts': 3, 'mode': 'standard'}
+  )
+  ```
+- Allows users to fail fast or wait longer based on environment
+
+### Region-Specific Error Handling
+
+Enhanced error handling for region-related issues provides clear, actionable error messages:
+
+**Custom Exceptions** (`src/exceptions.py`):
+- `AWSRegionError` - Invalid or inaccessible regions
+- `AWSCredentialsError` - Missing or invalid credentials
+- `AWSConnectionError` - Connection failures
+- `InstanceTypeError` - Instance type fetch failures
+
+**Error Detection**:
+- Invalid region names → Suggests using `instancepedia regions`
+- Regions not enabled → Explains opt-in requirement
+- Authorization failures → Identifies permissions issues
+- All errors include region context
+
+**Example**:
+```python
+# Before
+AWS API error (AuthFailure): You are not authorized...
+
+# After
+Not authorized to access EC2 in region 'ap-southeast-4'.
+This region may not be enabled for your account or you may lack permissions.
+Use 'instancepedia regions' to see available regions.
+```
+
+### Cache Management
+
+Cache commands are available via CLI to view statistics and clear cached data:
+
+**Commands**:
+```bash
+# View cache statistics
+instancepedia cache stats
+instancepedia cache stats --format json
+
+# Clear all cache
+instancepedia cache clear
+
+# Clear by region
+instancepedia cache clear --region us-east-1
+
+# Clear by instance type
+instancepedia cache clear --instance-type t3.micro
+
+# Skip confirmation
+instancepedia cache clear --force
+```
+
+**Implementation** (`src/cli/commands.py`):
+- `cmd_cache_stats()` - Shows cache location, entries, size, age
+- `cmd_cache_clear()` - Clears cache with optional filters and confirmation
+
+**Cache Statistics Tracking**:
+- Cache hit tracking occurs DURING pricing fetch, not after
+- `AsyncPricingService` uses `cache_hit_callback` to count hits
+- Statistics passed to `InstanceList` when pricing completes
+- Prevents false reporting where all prices appear cached
+
 ## Known Issues to Avoid
 
 ### Textual `Screen.region` Property Conflict
