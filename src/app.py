@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import List
 from textual.app import App, ComposeResult
 from textual.screen import Screen
 from textual.containers import Container, Vertical
@@ -14,6 +15,7 @@ from src.debug import DebugLog, DebugPane
 from src.ui.region_selector import RegionSelector
 from src.ui.instance_list import InstanceList
 from src.ui.instance_detail import InstanceDetail
+from src.models.instance_type import InstanceType
 from src.services.aws_client import AWSClient
 from src.services.async_aws_client import AsyncAWSClient
 from src.services.instance_service import InstanceService
@@ -442,12 +444,15 @@ class InstancepediaApp(App):
                     if inst.pricing and inst.pricing.on_demand_price is not None
                 )
                 total_count = len(self.instance_types)
+                failed_count = total_count - pricing_loaded_count
                 DebugLog.log(f"Pricing fetch completed: {pricing_loaded_count}/{total_count} instance types have pricing data")
+                if failed_count > 0:
+                    DebugLog.log(f"⚠️ {failed_count} instance types failed to load pricing")
                 DebugLog.log(f"Cache hits: {cache_hits}/{pricing_loaded_count} ({cache_hits/pricing_loaded_count*100:.1f}% from cache)" if pricing_loaded_count > 0 else "Cache hits: 0")
 
                 def do_mark_done():
                     try:
-                        instance_list.mark_pricing_loading(False, cache_hits=cache_hits, total_prices=pricing_loaded_count)
+                        instance_list.mark_pricing_loading(False, cache_hits=cache_hits, total_prices=pricing_loaded_count, failed_count=failed_count)
                     except Exception as e:
                         DebugLog.log(f"Error marking pricing as done: {e}")
                 self.call_later(do_mark_done)
@@ -474,7 +479,113 @@ class InstancepediaApp(App):
         )
         self._pricing_worker = worker
         DebugLog.log(f"Pricing worker started: {worker}")
-    
+
+    def _retry_pricing_for_instances(self, instance_list: InstanceList, failed_instances: List[InstanceType]) -> None:
+        """Retry pricing fetch for specific instances that failed
+
+        Args:
+            instance_list: The instance list screen to update
+            failed_instances: List of instances that need pricing
+        """
+        DebugLog.log(f"Retrying pricing for {len(failed_instances)} instances")
+
+        async def retry_worker():
+            """Async worker to retry pricing for failed instances"""
+            try:
+                if self._shutting_down:
+                    return
+
+                # Mark as loading again
+                def do_mark_loading():
+                    try:
+                        instance_list._pricing_loading = True
+                        instance_list._update_status_bar()
+                    except Exception as e:
+                        DebugLog.log(f"Error marking retry as loading: {e}")
+                self.call_later(do_mark_loading)
+
+                # Create async client and pricing service
+                from src.services.async_aws_client import AsyncAWSClient
+                from src.services.async_pricing_service import AsyncPricingService
+                from src.models.instance_type import PricingInfo
+
+                async_client = AsyncAWSClient(self.current_region, self.settings.aws_profile)
+                pricing_service = AsyncPricingService(async_client)
+
+                failed_names = [inst.instance_type for inst in failed_instances]
+                instance_map = {inst.instance_type: inst for inst in failed_instances}
+
+                # Fetch prices with lower concurrency for retry
+                prices = await pricing_service.get_on_demand_prices_batch(
+                    failed_names,
+                    self.current_region,
+                    concurrency=3  # Lower concurrency for retry
+                )
+
+                # Update instances with fetched prices
+                success_count = 0
+                for inst in failed_instances:
+                    price = prices.get(inst.instance_type)
+                    if price is not None:
+                        if not inst.pricing:
+                            inst.pricing = PricingInfo(on_demand_price=price, spot_price=None)
+                        else:
+                            inst.pricing.on_demand_price = price
+                        success_count += 1
+
+                # Calculate new failure count
+                total_failed = len(self.instance_types) - sum(
+                    1 for inst in self.instance_types
+                    if inst.pricing and inst.pricing.on_demand_price is not None
+                )
+
+                DebugLog.log(f"Retry completed: {success_count}/{len(failed_instances)} instances now have pricing")
+                DebugLog.log(f"Total instances without pricing: {total_failed}")
+
+                # Mark as done and update UI
+                def do_mark_done():
+                    try:
+                        instance_list._pricing_loading = False
+                        instance_list._pricing_failed_count = total_failed
+                        instance_list._populate_tree()
+                        instance_list._update_status_bar()
+
+                        # Show success message
+                        status = instance_list.query_one("#status-text", Static)
+                        if success_count > 0:
+                            status.update(f"✓ Retry successful: {success_count} prices loaded")
+                        else:
+                            status.update(f"⚠️ Retry failed: No new prices loaded")
+                        instance_list.set_timer(5.0, lambda: instance_list._update_status_bar())
+                    except Exception as e:
+                        DebugLog.log(f"Error updating after retry: {e}")
+                self.call_later(do_mark_done)
+
+            except Exception as e:
+                DebugLog.log(f"Error in retry worker: {e}")
+                import traceback
+                DebugLog.log(f"Traceback: {traceback.format_exc()}")
+
+                # Mark as done even on error
+                def do_mark_error():
+                    try:
+                        instance_list._pricing_loading = False
+                        instance_list._update_status_bar()
+                        status = instance_list.query_one("#status-text", Static)
+                        status.update(f"✗ Retry failed: {str(e)}")
+                        instance_list.set_timer(5.0, lambda: instance_list._update_status_bar())
+                    except Exception:
+                        pass
+                self.call_later(do_mark_error)
+
+        # Run retry worker
+        self.run_worker(
+            retry_worker,
+            name="retry_pricing",
+            description="Retrying EC2 instance pricing",
+            exit_on_error=False,
+        )
+
     def on_exit(self) -> None:
         """Handle app exit - cancel pricing worker"""
         DebugLog.log("App exiting - cancelling pricing worker")

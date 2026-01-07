@@ -40,6 +40,13 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - Current sort order displayed in status bar
   - Sorting works within each instance family
   - Sort order is preserved during navigation and filtering
+- 🔄 **Robust Error Recovery**: Graceful handling of partial failures
+  - App continues to function even if some pricing data fails to load
+  - Status bar shows count of instances with missing prices
+  - Press 'R' to retry fetching failed pricing data
+  - Detailed logging of failures for troubleshooting
+  - Partial success scenarios handled gracefully
+  - Background retry with lower concurrency for reliability
 - 🔀 **Instance Comparison**: Mark up to 2 instances and view side-by-side comparison
   - Compare vCPU, memory, network, storage, pricing, and more
   - Visual markers show which instances are marked for comparison
@@ -346,6 +353,7 @@ instancepedia show t3.micro --region us-east-1 --include-pricing --format json |
 - `/` - Focus search input
 - `F` - Open advanced filter modal (filter by vCPU, memory, GPU, architecture, etc.)
 - `S` - Cycle through sort options (Instance Type, Price, vCPU, Memory - ascending/descending)
+- `R` - Retry fetching pricing for instances that failed (manual retry)
 - `C` - Mark/unmark instance for comparison (max 2 instances)
 - `V` - View comparison of marked instances (requires 2 marked instances)
 - `E` - Export current filtered list to JSON and CSV files
