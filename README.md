@@ -343,8 +343,16 @@ instancepedia show t3.micro --region us-east-1 --include-pricing --format json |
 
 You can configure the application using environment variables:
 
+### AWS Credentials and Region
 - `INSTANCEPEDIA_AWS_REGION` - Default AWS region (default: us-east-1)
 - `INSTANCEPEDIA_AWS_PROFILE` - AWS profile to use
+
+### Timeout Configuration
+- `INSTANCEPEDIA_AWS_CONNECT_TIMEOUT` - Connection timeout for AWS APIs in seconds (default: 10)
+- `INSTANCEPEDIA_AWS_READ_TIMEOUT` - Read timeout for AWS API calls in seconds (default: 60)
+- `INSTANCEPEDIA_PRICING_READ_TIMEOUT` - Read timeout for Pricing API calls in seconds (default: 90)
+
+**Note**: Timeout configuration allows you to customize API behavior based on your network environment. Lower timeouts fail faster (useful for CI/CD), while higher timeouts are better for slow or unreliable networks. The Pricing API timeout is higher by default since it's historically slower than other AWS APIs.
 
 ## IAM Permissions
 
