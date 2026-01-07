@@ -45,7 +45,29 @@ def cmd_list(args) -> int:
         
         if args.family:
             instances = [inst for inst in instances if inst.instance_type.startswith(args.family)]
-        
+
+        # Storage type filter
+        if hasattr(args, 'storage_type') and args.storage_type:
+            if args.storage_type == "ebs-only":
+                instances = [
+                    inst for inst in instances
+                    if inst.instance_storage_info is None or inst.instance_storage_info.total_size_in_gb is None or inst.instance_storage_info.total_size_in_gb == 0
+                ]
+            elif args.storage_type == "instance-store":
+                instances = [
+                    inst for inst in instances
+                    if inst.instance_storage_info and inst.instance_storage_info.total_size_in_gb and inst.instance_storage_info.total_size_in_gb > 0
+                ]
+
+        # NVMe support filter
+        if hasattr(args, 'nvme') and args.nvme:
+            if args.nvme == "required":
+                instances = [inst for inst in instances if inst.instance_storage_info and inst.instance_storage_info.nvme_support == "required"]
+            elif args.nvme == "supported":
+                instances = [inst for inst in instances if inst.instance_storage_info and inst.instance_storage_info.nvme_support == "supported"]
+            elif args.nvme == "unsupported":
+                instances = [inst for inst in instances if not inst.instance_storage_info or not inst.instance_storage_info.nvme_support or inst.instance_storage_info.nvme_support == "unsupported"]
+
         # Fetch pricing if requested and not already fetched
         if args.include_pricing and instances:
             print("Fetching pricing information...", file=sys.stderr)

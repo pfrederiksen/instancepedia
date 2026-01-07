@@ -114,6 +114,20 @@ Examples:
         help="Filter by instance family (e.g., t3, m5)"
     )
     list_parser.add_argument(
+        "--storage-type",
+        type=str,
+        choices=["ebs-only", "instance-store"],
+        default=None,
+        help="Filter by storage type: ebs-only or instance-store"
+    )
+    list_parser.add_argument(
+        "--nvme",
+        type=str,
+        choices=["required", "supported", "unsupported"],
+        default=None,
+        help="Filter by NVMe support: required, supported, or unsupported"
+    )
+    list_parser.add_argument(
         "--include-pricing",
         action="store_true",
         help="Include pricing information (slower)"
@@ -153,6 +167,20 @@ Examples:
         type=str,
         default=None,
         help="Filter by instance family (e.g., t3, m5)"
+    )
+    search_parser.add_argument(
+        "--storage-type",
+        type=str,
+        choices=["ebs-only", "instance-store"],
+        default=None,
+        help="Filter by storage type: ebs-only or instance-store"
+    )
+    search_parser.add_argument(
+        "--nvme",
+        type=str,
+        choices=["required", "supported", "unsupported"],
+        default=None,
+        help="Filter by NVMe support: required, supported, or unsupported"
     )
     search_parser.add_argument(
         "--include-pricing",

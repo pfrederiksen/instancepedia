@@ -125,6 +125,37 @@ Filter presets allow users to quickly apply common filtering scenarios. Built-in
 
 Presets are defined in `src/services/filter_preset_service.py` and stored in `~/.instancepedia/presets/filter_presets.json` for custom presets.
 
+### Storage Filters
+
+Storage-focused filtering allows users to find instances based on storage characteristics:
+
+**Filter Options**:
+- **Storage Type**:
+  - `ebs_only` (TUI) / `ebs-only` (CLI): Instances with EBS-only storage (no instance store)
+  - `has_instance_store` (TUI) / `instance-store` (CLI): Instances with attached instance store volumes
+
+- **NVMe Support**:
+  - `required`: Instances that require NVMe (high-performance instance store)
+  - `supported`: Instances that support NVMe
+  - `unsupported`: Instances without NVMe support
+
+**Implementation** (`src/ui/filter_modal.py`, `src/ui/instance_list.py`):
+- Added `storage_type` and `nvme_support` fields to `FilterCriteria`
+- Storage type filter checks `instance_storage_info.total_size_in_gb`
+- NVMe filter checks `instance_storage_info.nvme_support`
+- Filters applied in `_apply_filters()` method
+
+**CLI Integration** (`src/cli/parser.py`, `src/cli/commands.py`):
+- `--storage-type` argument: `ebs-only` or `instance-store`
+- `--nvme` argument: `required`, `supported`, or `unsupported`
+- Available for both `list` and `search` commands
+
+**TUI Display** (`src/ui/instance_list.py`):
+- Instance storage shown in list view (e.g., "150GB NVMe")
+- Storage size displayed when available
+- NVMe indicator added for NVMe-required instances
+- Format: `{size}GB{" NVMe" if required}`
+
 ### EBS Recommendations
 
 The `EbsRecommendationService` provides volume type recommendations based on instance EBS capabilities:
