@@ -21,6 +21,8 @@ class FilterCriteria:
         self.free_tier: str = "any"  # any, yes, no
         self.architecture: str = "any"  # any, x86_64, arm64
         self.family_filter: str = ""  # comma-separated list of families
+        self.storage_type: str = "any"  # any, ebs_only, has_instance_store
+        self.nvme_support: str = "any"  # any, required, supported, unsupported
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -35,6 +37,8 @@ class FilterCriteria:
             "free_tier": self.free_tier,
             "architecture": self.architecture,
             "family_filter": self.family_filter,
+            "storage_type": self.storage_type,
+            "nvme_support": self.nvme_support,
         }
 
     def from_dict(self, data: Dict[str, Any]) -> None:
@@ -49,6 +53,8 @@ class FilterCriteria:
         self.free_tier = data.get("free_tier", "any")
         self.architecture = data.get("architecture", "any")
         self.family_filter = data.get("family_filter", "")
+        self.storage_type = data.get("storage_type", "any")
+        self.nvme_support = data.get("nvme_support", "any")
 
     def has_active_filters(self) -> bool:
         """Check if any filters are active"""
@@ -63,6 +69,8 @@ class FilterCriteria:
             or self.free_tier != "any"
             or self.architecture != "any"
             or bool(self.family_filter.strip())
+            or self.storage_type != "any"
+            or self.nvme_support != "any"
         )
 
     def reset(self) -> None:
@@ -239,6 +247,24 @@ class FilterModal(ModalScreen):
                         id="family-filter"
                     )
 
+                # Storage type filter
+                with Horizontal(classes="filter-row"):
+                    yield Static("Storage Type:", classes="filter-label")
+                    yield Select(
+                        [("Any", "any"), ("EBS Only", "ebs_only"), ("Has Instance Store", "has_instance_store")],
+                        value=self.criteria.storage_type,
+                        id="storage-type-filter"
+                    )
+
+                # NVMe support filter
+                with Horizontal(classes="filter-row"):
+                    yield Static("NVMe Support:", classes="filter-label")
+                    yield Select(
+                        [("Any", "any"), ("Required", "required"), ("Supported", "supported"), ("Unsupported", "unsupported")],
+                        value=self.criteria.nvme_support,
+                        id="nvme-filter"
+                    )
+
                 # Buttons
                 with Horizontal(id="filter-buttons"):
                     yield Button("Apply Filters", variant="primary", id="apply-button")
@@ -297,6 +323,8 @@ class FilterModal(ModalScreen):
         criteria.burstable = self.query_one("#burstable-filter", Select).value
         criteria.free_tier = self.query_one("#free-tier-filter", Select).value
         criteria.architecture = self.query_one("#arch-filter", Select).value
+        criteria.storage_type = self.query_one("#storage-type-filter", Select).value
+        criteria.nvme_support = self.query_one("#nvme-filter", Select).value
 
         # Get family filter
         criteria.family_filter = self.query_one("#family-filter", Input).value.strip()
@@ -316,6 +344,8 @@ class FilterModal(ModalScreen):
         self.query_one("#free-tier-filter", Select).value = "any"
         self.query_one("#arch-filter", Select).value = "any"
         self.query_one("#family-filter", Input).value = ""
+        self.query_one("#storage-type-filter", Select).value = "any"
+        self.query_one("#nvme-filter", Select).value = "any"
 
     def action_cancel(self) -> None:
         """Cancel and close modal"""

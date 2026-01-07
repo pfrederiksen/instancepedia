@@ -198,7 +198,14 @@ class InstanceList(Screen):
             memory_str = f"{memory_gb:.2f}GB"
         else:
             memory_str = f"{memory_gb:.1f}GB"
-        
+
+        # Format instance storage
+        storage_str = None
+        if instance.instance_storage_info and instance.instance_storage_info.total_size_in_gb:
+            storage_gb = instance.instance_storage_info.total_size_in_gb
+            nvme_indicator = " NVMe" if instance.instance_storage_info.nvme_support == "required" else ""
+            storage_str = f"{storage_gb}GB{nvme_indicator}"
+
         # Format pricing
         if instance.pricing and instance.pricing.on_demand_price is not None:
             price_str = f"${instance.pricing.on_demand_price:.4f}/hr"
@@ -206,14 +213,20 @@ class InstanceList(Screen):
             price_str = "⏳ Loading..."
         else:
             price_str = "N/A"
-        
+
         # Build label
         label_parts = [
             instance.instance_type,
             f"{instance.vcpu_info.default_vcpus}vCPU",
-            memory_str,
-            price_str
+            memory_str
         ]
+
+        # Add storage if available
+        if storage_str:
+            label_parts.append(storage_str)
+
+        # Add pricing
+        label_parts.append(price_str)
 
         if is_free_tier:
             label_parts.append("🆓")
@@ -466,6 +479,26 @@ class InstanceList(Screen):
                     inst for inst in filtered
                     if any(extract_family_name(inst.instance_type).lower() == family for family in families)
                 ]
+
+        # Storage type filter
+        if criteria.storage_type == "ebs_only":
+            filtered = [
+                inst for inst in filtered
+                if inst.instance_storage_info is None or inst.instance_storage_info.total_size_in_gb is None or inst.instance_storage_info.total_size_in_gb == 0
+            ]
+        elif criteria.storage_type == "has_instance_store":
+            filtered = [
+                inst for inst in filtered
+                if inst.instance_storage_info and inst.instance_storage_info.total_size_in_gb and inst.instance_storage_info.total_size_in_gb > 0
+            ]
+
+        # NVMe support filter
+        if criteria.nvme_support == "required":
+            filtered = [inst for inst in filtered if inst.instance_storage_info and inst.instance_storage_info.nvme_support == "required"]
+        elif criteria.nvme_support == "supported":
+            filtered = [inst for inst in filtered if inst.instance_storage_info and inst.instance_storage_info.nvme_support == "supported"]
+        elif criteria.nvme_support == "unsupported":
+            filtered = [inst for inst in filtered if not inst.instance_storage_info or not inst.instance_storage_info.nvme_support or inst.instance_storage_info.nvme_support == "unsupported"]
 
         self.filtered_instance_types = filtered
         # Preserve expanded state when filtering
