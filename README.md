@@ -33,6 +33,11 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - Compare vCPU, memory, network, storage, pricing, and more
   - Visual markers show which instances are marked for comparison
   - Quick keyboard shortcuts for marking and viewing comparisons
+- 📤 **Export Functionality**: Export filtered instance lists to files
+  - Press 'E' to export current view to both JSON and CSV formats
+  - Files saved to `~/.instancepedia/exports/` with timestamp
+  - Exports respect current filters and search terms
+  - Includes all instance details and pricing information
 - 📊 **Detailed Information**: Comprehensive details for each instance type including:
   - Compute specifications (vCPU, cores, threads)
   - Memory information
@@ -331,6 +336,7 @@ instancepedia show t3.micro --region us-east-1 --include-pricing --format json |
 - `F` - Toggle free tier filter (show only free tier eligible instances)
 - `C` - Mark/unmark instance for comparison (max 2 instances)
 - `V` - View comparison of marked instances (requires 2 marked instances)
+- `E` - Export current filtered list to JSON and CSV files
 - `Esc` - Back to region selector
 - `Q` - Quit
 

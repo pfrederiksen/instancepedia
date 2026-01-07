@@ -109,6 +109,7 @@ class InstanceList(Screen):
         ("/", "focus_search", "Search"),
         ("c", "mark_for_comparison", "Mark for Compare"),
         ("v", "view_comparison", "View Compare"),
+        ("e", "export_instances", "Export to File"),
     ]
 
     def __init__(self, instance_types: List[InstanceType], region: str):
@@ -150,7 +151,7 @@ class InstanceList(Screen):
                 with Horizontal(id="status-bar"):
                     yield Static("", id="status-text")
                 yield Static(
-                    "Enter: View | Space: Expand | /: Search | F: Filter | C: Mark Compare | V: View Compare | Esc: Back | Q: Quit",
+                    "Enter: View | /: Search | F: Filter | C: Compare | V: View | E: Export | Esc: Back | Q: Quit",
                     id="help-text"
                 )
             if DebugLog.is_enabled():
@@ -618,6 +619,72 @@ class InstanceList(Screen):
             self._region
         )
         self.app.push_screen(comparison_screen)
+
+    def action_export_instances(self) -> None:
+        """Export current filtered instances to a file"""
+        from datetime import datetime
+        from pathlib import Path
+        import logging
+
+        logger = logging.getLogger("instancepedia")
+
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_filename = f"instancepedia_export_{self._region}_{timestamp}"
+
+        # Export both JSON and CSV for convenience
+        export_dir = Path.home() / ".instancepedia" / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+
+        json_file = export_dir / f"{base_filename}.json"
+        csv_file = export_dir / f"{base_filename}.csv"
+
+        try:
+            # Use CLI formatters to export
+            from src.cli.output import JSONFormatter, CSVFormatter
+
+            json_formatter = JSONFormatter()
+            csv_formatter = CSVFormatter()
+
+            # Export JSON
+            json_output = json_formatter.format_instance_list(
+                self.filtered_instance_types,
+                self._region
+            )
+            with open(json_file, 'w') as f:
+                f.write(json_output)
+
+            # Export CSV
+            csv_output = csv_formatter.format_instance_list(
+                self.filtered_instance_types,
+                self._region
+            )
+            with open(csv_file, 'w') as f:
+                f.write(csv_output)
+
+            # Update status bar with success message
+            status = self.query_one("#status-text", Static)
+            status.update(f"✓ Exported {len(self.filtered_instance_types)} instances to {export_dir.name}/")
+            DebugLog.log(f"Exported to {json_file} and {csv_file}")
+
+            # Clear message after 5 seconds
+            def clear_status():
+                free_tier_service = FreeTierService()
+                total = len(self.all_instance_types)
+                filtered = len(self.filtered_instance_types)
+                free_tier_count = sum(
+                    1 for inst in self.filtered_instance_types
+                    if free_tier_service.is_eligible(inst.instance_type)
+                )
+                status.update(f"Showing {filtered} of {total} instance types ({free_tier_count} free tier eligible)")
+
+            self.set_timer(5.0, clear_status)
+
+        except Exception as e:
+            logger.error(f"Failed to export instances: {e}", exc_info=True)
+            status = self.query_one("#status-text", Static)
+            status.update(f"✗ Export failed: {str(e)}")
+            DebugLog.log(f"Export error: {e}")
 
     def action_quit(self) -> None:
         """Quit application"""
