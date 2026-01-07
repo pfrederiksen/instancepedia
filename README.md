@@ -84,6 +84,7 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 - ⚡ **Fast**: No UI overhead, optimized for batch operations
 - 🔇 **Quiet Mode**: Suppress progress messages for clean script output
 - 💾 **Cache Management**: View cache statistics and clear cached pricing data
+- 📈 **Spot Price History**: Analyze historical spot price trends with statistics and volatility indicators
 
 ## Installation
 
@@ -223,6 +224,49 @@ Spot: $0.0036/hr
 Spot Savings: 65.4%
 ```
 
+#### Spot Price History
+
+```bash
+# Show spot price history and trends
+instancepedia spot-history t3.micro --region us-east-1
+
+# Specify custom time period (default: 30 days)
+instancepedia spot-history t3.micro --region us-east-1 --days 7
+instancepedia spot-history t3.micro --region us-east-1 --days 90
+
+# Output as JSON for analysis
+instancepedia spot-history t3.micro --region us-east-1 --format json
+```
+
+**Example Output (table format):**
+```
+Spot Price History for t3.micro in us-east-1
+Period: Last 30 days (215 data points)
+
+Price Statistics:
+  Current Price:   $0.0033/hr
+  Minimum Price:   $0.0028/hr
+  Maximum Price:   $0.0044/hr
+  Average Price:   $0.0036/hr
+  Median Price:    $0.0039/hr
+  Price Range:     $0.0016/hr (0.0028 - 0.0044)
+  Volatility:      14.7% (std dev / avg)
+  Stability:       Stable
+
+Price Trend (last 10 data points):
+  ████████████████████████████████████████████ $0.0044
+  ███████████████████████████████████████      $0.0041
+  ████████████████████████████████████         $0.0038
+  [... visualization continues ...]
+```
+
+The spot price history feature provides:
+- **Statistical Analysis**: Min, max, average, median, and standard deviation
+- **Volatility Metrics**: Percentage-based volatility with stability ratings (Very Stable, Stable, Moderate, Volatile, Highly Volatile)
+- **Price Trends**: Visual bar chart showing recent price movements
+- **Data Points**: Number of price changes recorded during the period
+- **Free API**: Uses AWS EC2 `describe-spot-price-history` API (no CloudWatch charges)
+
 #### List Available Regions
 
 ```bash
@@ -360,6 +404,10 @@ instancepedia compare-family m6i --region us-east-1 --include-pricing --sort-by 
 instancepedia presets list
 instancepedia presets apply web-server --region us-east-1 --include-pricing
 instancepedia presets apply database --region us-east-1 --format json
+
+# Analyze spot price history and trends
+instancepedia spot-history t3.micro --region us-east-1 --days 30
+instancepedia spot-history m5.large --region us-east-1 --days 7 --format json
 ```
 
 ### Keyboard Shortcuts

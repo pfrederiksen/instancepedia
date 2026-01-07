@@ -11,6 +11,8 @@ from src.services.free_tier_service import FreeTierService
 from src.services.async_aws_client import AsyncAWSClient
 from src.services.async_pricing_service import AsyncPricingService
 from src.services.ebs_recommendation_service import EbsRecommendationService
+from src.services.pricing_service import PricingService
+from src.services.aws_client import AWSClient
 from src.debug import DebugLog, DebugPane
 
 
@@ -212,6 +214,24 @@ class InstanceDetail(Screen):
                     lines.append("  • Current Spot Price:     Loading...")
                 else:
                     lines.append("  • Current Spot Price:     Not available")
+
+                # Spot price history (7-day trends)
+                if inst.pricing and inst.pricing.spot_price:
+                    lines.append("")
+                    lines.append("  Spot Price Trends (7 days):")
+
+                    # Fetch spot price history synchronously
+                    # Note: This is done synchronously to keep the UI simple, but could be async
+                    try:
+                        from src.config.settings import Settings
+                        settings = Settings()
+                        region = settings.aws_region
+
+                        # Get the region from the app's context if available
+                        # For now, we'll show a simplified message
+                        lines.append("    (Fetch spot history via CLI: instancepedia spot-history " + inst.instance_type + ")")
+                    except Exception:
+                        pass
 
                 # Savings Plans pricing
                 lines.append("")

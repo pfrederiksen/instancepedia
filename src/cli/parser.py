@@ -319,6 +319,22 @@ Examples:
     )
     presets_apply_parser.set_defaults(func=commands.cmd_presets_apply)
 
+    # Spot history command
+    spot_history_parser = subparsers.add_parser("spot-history", help="Show spot price history and trends")
+    add_common_args(spot_history_parser)
+    spot_history_parser.add_argument(
+        "instance_type",
+        type=str,
+        help="Instance type (e.g., t3.micro)"
+    )
+    spot_history_parser.add_argument(
+        "--days",
+        type=int,
+        default=30,
+        help="Number of days of history (default: 30)"
+    )
+    spot_history_parser.set_defaults(func=commands.cmd_spot_history)
+
     # Cache command
     cache_parser = subparsers.add_parser("cache", help="Manage pricing cache")
     cache_subparsers = cache_parser.add_subparsers(dest="cache_command", help="Cache commands")

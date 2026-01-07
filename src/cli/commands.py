@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.services.aws_client import AWSClient
 from src.services.instance_service import InstanceService
-from src.services.pricing_service import PricingService
+from src.services.pricing_service import PricingService, SpotPriceHistory
 from src.services.free_tier_service import FreeTierService
 from src.services.filter_preset_service import FilterPresetService
 from src.models.instance_type import InstanceType, PricingInfo
@@ -831,6 +831,130 @@ def cmd_presets_apply(args) -> int:
         filtered_instances = sorted(filtered_instances, key=lambda x: x.instance_type)
 
         output = formatter.format_instance_list(filtered_instances, args.region)
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(output)
+            if not args.quiet:
+                print(f"Output written to {args.output}", file=sys.stderr)
+        else:
+            print(output)
+
+        return 0
+
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        if args.debug:
+            import traceback
+            traceback.print_exc()
+        return 1
+
+
+def cmd_spot_history(args) -> int:
+    """Spot price history command"""
+    try:
+        aws_client = get_aws_client(args.region, args.profile)
+        pricing_service = PricingService(aws_client)
+
+        if not args.quiet:
+            print(f"Fetching spot price history for {args.instance_type} in {args.region}...", file=sys.stderr)
+            print(f"Looking back {args.days} days...", file=sys.stderr)
+
+        history = pricing_service.get_spot_price_history(
+            args.instance_type,
+            args.region,
+            args.days
+        )
+
+        if not history:
+            print(f"No spot price history available for {args.instance_type} in {args.region}", file=sys.stderr)
+            return 1
+
+        # Format output
+        if args.format == "json":
+            import json
+            data = {
+                "instance_type": history.instance_type,
+                "region": history.region,
+                "days": history.days,
+                "statistics": {
+                    "current_price": history.current_price,
+                    "min_price": history.min_price,
+                    "max_price": history.max_price,
+                    "avg_price": history.avg_price,
+                    "median_price": history.median_price,
+                    "std_dev": history.std_dev,
+                    "volatility_percentage": history.volatility_percentage,
+                    "price_range": history.price_range,
+                    "savings_vs_current": history.savings_vs_current
+                },
+                "price_points": [
+                    {
+                        "timestamp": ts.isoformat(),
+                        "price": price
+                    }
+                    for ts, price in history.price_points
+                ]
+            }
+            output = json.dumps(data, indent=2)
+        else:
+            # Table format
+            lines = []
+            lines.append(f"Spot Price History for {history.instance_type} in {history.region}")
+            lines.append(f"Period: Last {history.days} days ({len(history.price_points)} data points)")
+            lines.append("")
+            lines.append("Price Statistics:")
+            lines.append(f"  Current Price:   ${history.current_price:.4f}/hr" if history.current_price else "  Current Price:   N/A")
+            lines.append(f"  Minimum Price:   ${history.min_price:.4f}/hr" if history.min_price else "  Minimum Price:   N/A")
+            lines.append(f"  Maximum Price:   ${history.max_price:.4f}/hr" if history.max_price else "  Maximum Price:   N/A")
+            lines.append(f"  Average Price:   ${history.avg_price:.4f}/hr" if history.avg_price else "  Average Price:   N/A")
+            lines.append(f"  Median Price:    ${history.median_price:.4f}/hr" if history.median_price else "  Median Price:    N/A")
+            lines.append("")
+
+            # Price range and volatility
+            if history.price_range is not None:
+                lines.append(f"  Price Range:     ${history.price_range:.4f}/hr ({history.min_price:.4f} - {history.max_price:.4f})")
+
+            if history.volatility_percentage is not None:
+                lines.append(f"  Volatility:      {history.volatility_percentage:.1f}% (std dev / avg)")
+
+                # Interpret volatility
+                if history.volatility_percentage < 10:
+                    volatility_label = "Very Stable"
+                elif history.volatility_percentage < 20:
+                    volatility_label = "Stable"
+                elif history.volatility_percentage < 30:
+                    volatility_label = "Moderate"
+                elif history.volatility_percentage < 50:
+                    volatility_label = "Volatile"
+                else:
+                    volatility_label = "Highly Volatile"
+                lines.append(f"  Stability:       {volatility_label}")
+
+            lines.append("")
+
+            # Savings potential
+            if history.savings_vs_current is not None and history.savings_vs_current > 0:
+                lines.append(f"Potential Savings:")
+                lines.append(f"  If you had bought at minimum price instead of current:")
+                lines.append(f"  Savings: {history.savings_vs_current:.1f}% cheaper")
+                lines.append("")
+
+            # Simple text-based price trend visualization
+            lines.append("Price Trend (last 10 data points):")
+            recent_points = history.price_points[-10:] if len(history.price_points) > 10 else history.price_points
+
+            for ts, price in recent_points:
+                # Create simple bar chart
+                if history.min_price and history.max_price and history.max_price > history.min_price:
+                    normalized = (price - history.min_price) / (history.max_price - history.min_price)
+                    bar_length = int(normalized * 40)
+                    bar = "█" * bar_length
+                    lines.append(f"  {ts.strftime('%Y-%m-%d %H:%M')}  ${price:.4f}  {bar}")
+                else:
+                    lines.append(f"  {ts.strftime('%Y-%m-%d %H:%M')}  ${price:.4f}")
+
+            output = "\n".join(lines)
+
         if args.output:
             with open(args.output, 'w') as f:
                 f.write(output)
