@@ -94,6 +94,24 @@ class InstanceDetail(Screen):
             lines.append(f"  • Total Memory:      {memory_gb:.2f} GB ({inst.memory_info.size_in_mib} MiB)")
             lines.append("")
 
+            # GPU/Accelerators
+            if inst.gpu_info:
+                lines.append("GPU/Accelerators")
+                lines.append(f"  • Total GPUs:        {inst.gpu_info.total_gpu_count}")
+
+                # Show details for each GPU device type
+                for gpu_device in inst.gpu_info.gpus:
+                    gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
+                    lines.append(f"  • {gpu_name}:")
+                    lines.append(f"      Count:           {gpu_device.count}")
+                    if gpu_device.memory_in_gb:
+                        lines.append(f"      Memory per GPU:  {gpu_device.memory_in_gb:.0f} GB")
+
+                # Total GPU memory if available
+                if inst.gpu_info.total_gpu_memory_in_gb:
+                    lines.append(f"  • Total GPU Memory:  {inst.gpu_info.total_gpu_memory_in_gb:.0f} GB")
+                lines.append("")
+
             # Network
             lines.append("Network")
             lines.append(f"  • Performance:       {inst.network_info.network_performance}")
