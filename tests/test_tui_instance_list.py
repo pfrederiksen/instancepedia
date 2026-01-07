@@ -199,26 +199,30 @@ class TestInstanceList:
             assert str(len(sample_instance_types)) in content
 
     async def test_instance_list_free_tier_filter_toggle(self, sample_instance_types):
-        """Test free tier filter can be toggled"""
+        """Test filter modal can be opened"""
         app = InstanceListTestApp(sample_instance_types)
 
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            # Initial state
-            assert app.screen.free_tier_filter is False
+            # Initial state - filter criteria should have no active filters
+            assert app.screen.filter_criteria.has_active_filters() is False
 
-            # Toggle filter
+            # Open filter modal
             await pilot.press("f")
             await pilot.pause()
 
-            assert app.screen.free_tier_filter is True
+            # Filter modal should be open
+            from src.ui.filter_modal import FilterModal
+            assert isinstance(app.screen, FilterModal)
 
-            # Toggle back
-            await pilot.press("f")
+            # Close the modal with escape
+            await pilot.press("escape")
             await pilot.pause()
 
-            assert app.screen.free_tier_filter is False
+            # Should be back to instance list
+            from src.ui.instance_list import InstanceList
+            assert isinstance(app.screen, InstanceList)
 
     async def test_instance_list_quit_action(self, sample_instance_types):
         """Test quit action"""

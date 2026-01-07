@@ -28,7 +28,12 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - **Smart caching** with 4-hour TTL to reduce API calls and improve performance
   - Cache hit statistics displayed in the header during and after pricing loads
 - 💵 **Cost Calculator**: Automatic calculation of monthly and annual costs, plus cost per vCPU and GB RAM
-- 🔍 **Search & Filter**: Search by instance type name, filter by free tier eligibility
+- 🔍 **Advanced Search & Filtering**: Powerful filtering capabilities
+  - Search by instance type name (real-time as you type)
+  - Advanced attribute filters: vCPU count (min/max), memory size (min/max), GPU presence, current generation, burstable performance, free tier eligibility, architecture (x86_64/ARM64), instance families
+  - Filter modal with easy-to-use interface (press 'F' to open)
+  - Active filter indicator in status bar
+  - Filters are preserved across navigation
 - 🔀 **Instance Comparison**: Mark up to 2 instances and view side-by-side comparison
   - Compare vCPU, memory, network, storage, pricing, and more
   - Visual markers show which instances are marked for comparison
@@ -333,12 +338,26 @@ instancepedia show t3.micro --region us-east-1 --include-pricing --format json |
 - `Enter` - View details (on instance) or expand/collapse (on category/family)
 - `Space` - Expand/collapse category or family
 - `/` - Focus search input
-- `F` - Toggle free tier filter (show only free tier eligible instances)
+- `F` - Open advanced filter modal (filter by vCPU, memory, GPU, architecture, etc.)
 - `C` - Mark/unmark instance for comparison (max 2 instances)
 - `V` - View comparison of marked instances (requires 2 marked instances)
 - `E` - Export current filtered list to JSON and CSV files
 - `Esc` - Back to region selector
 - `Q` - Quit
+
+#### Filter Modal
+- `Tab` / `Shift+Tab` - Navigate between filter inputs
+- `Enter` - Apply filters (when "Apply Filters" button is focused)
+- `Esc` - Cancel and close modal
+- **Filter Options:**
+  - vCPU Count: Min/max range filter
+  - Memory (GB): Min/max range filter
+  - Has GPU: Any / Yes / No
+  - Current Generation: Any / Yes / No
+  - Burstable Performance: Any / Yes / No
+  - Free Tier Eligible: Any / Yes / No
+  - Architecture: Any / x86_64 / ARM64
+  - Instance Families: Comma-separated list (e.g., t3, m5, c6i)
 
 **Tree Navigation Tips:**
 - The root "Instance Types" node is expanded by default

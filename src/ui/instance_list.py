@@ -17,6 +17,7 @@ from src.services.free_tier_service import FreeTierService
 from src.debug import DebugLog, DebugPane
 from textual.containers import Vertical
 from src.ui.region_selector import RegionSelector
+from src.ui.filter_modal import FilterModal, FilterCriteria
 
 
 def extract_family_name(instance_type: str) -> str:
@@ -105,7 +106,7 @@ class InstanceList(Screen):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("escape", "back", "Back"),
-        ("f", "toggle_free_tier_filter", "Filter Free Tier"),
+        ("f", "show_filters", "Filters"),
         ("/", "focus_search", "Search"),
         ("c", "mark_for_comparison", "Mark for Compare"),
         ("v", "view_comparison", "View Compare"),
@@ -117,8 +118,9 @@ class InstanceList(Screen):
         self.all_instance_types = instance_types
         self.filtered_instance_types = instance_types
         self._region = region  # Use _region to avoid conflict with Screen.region property
-        self.free_tier_filter = False
+        self.free_tier_filter = False  # Deprecated - kept for backwards compatibility
         self.search_term = ""
+        self.filter_criteria = FilterCriteria()  # Advanced filter criteria
         self._pricing_loading = True  # Track if pricing is being loaded
         self._pricing_loaded_count = 0  # Track how many prices have been loaded
         self._instance_type_map: Dict[str, InstanceType] = {}  # Map instance type names to objects
@@ -151,7 +153,7 @@ class InstanceList(Screen):
                 with Horizontal(id="status-bar"):
                     yield Static("", id="status-text")
                 yield Static(
-                    "Enter: View | /: Search | F: Filter | C: Compare | V: View | E: Export | Esc: Back | Q: Quit",
+                    "Enter: View | /: Search | F: Filters | C: Mark | V: Compare | E: Export | Esc: Back | Q: Quit",
                     id="help-text"
                 )
             if DebugLog.is_enabled():
@@ -337,6 +339,10 @@ class InstanceList(Screen):
             pass  # Ignore if expansion fails
 
         # Update status bar
+        self._update_status_bar()
+
+    def _update_status_bar(self) -> None:
+        """Update the status bar with current filter and pricing information"""
         free_tier_service = FreeTierService()
         total = len(self.all_instance_types)
         filtered = len(self.filtered_instance_types)
@@ -347,9 +353,14 @@ class InstanceList(Screen):
         status = f"Showing {filtered} of {total} instance types"
         if free_tier_count > 0:
             status += f" | 🆓 {free_tier_count} free tier eligible"
-        if self.free_tier_filter:
+
+        # Show active filters indicator
+        if self.filter_criteria.has_active_filters():
+            status += " | 🔍 Filters active"
+        elif self.free_tier_filter:
+            # Backwards compatibility
             status += " | [Free Tier Filter Active]"
-        
+
         # Add pricing loading status
         if self._pricing_loading:
             pricing_loaded = sum(
@@ -360,7 +371,7 @@ class InstanceList(Screen):
                 status += f" | ⏳ Loading prices... ({pricing_loaded}/{filtered})"
             else:
                 status += " | ⏳ Loading prices..."
-        
+
         self.query_one("#status-text", Static).update(status)
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -370,7 +381,7 @@ class InstanceList(Screen):
             self._apply_filters()
 
     def _apply_filters(self) -> None:
-        """Apply search and free tier filters"""
+        """Apply search and attribute filters"""
         free_tier_service = FreeTierService()
         filtered = self.all_instance_types
 
@@ -381,12 +392,67 @@ class InstanceList(Screen):
                 if self.search_term in inst.instance_type.lower()
             ]
 
-        # Apply free tier filter
+        # Apply backwards compatible free tier filter (deprecated)
         if self.free_tier_filter:
             filtered = [
                 inst for inst in filtered
                 if free_tier_service.is_eligible(inst.instance_type)
             ]
+
+        # Apply advanced attribute filters
+        criteria = self.filter_criteria
+
+        # vCPU filters
+        if criteria.min_vcpu is not None:
+            filtered = [inst for inst in filtered if inst.vcpu_info.default_vcpus >= criteria.min_vcpu]
+        if criteria.max_vcpu is not None:
+            filtered = [inst for inst in filtered if inst.vcpu_info.default_vcpus <= criteria.max_vcpu]
+
+        # Memory filters
+        if criteria.min_memory_gb is not None:
+            filtered = [inst for inst in filtered if inst.memory_info.size_in_gb >= criteria.min_memory_gb]
+        if criteria.max_memory_gb is not None:
+            filtered = [inst for inst in filtered if inst.memory_info.size_in_gb <= criteria.max_memory_gb]
+
+        # GPU filter
+        if criteria.gpu_filter == "yes":
+            filtered = [inst for inst in filtered if inst.gpu_info and inst.gpu_info.total_gpu_count > 0]
+        elif criteria.gpu_filter == "no":
+            filtered = [inst for inst in filtered if not inst.gpu_info or inst.gpu_info.total_gpu_count == 0]
+
+        # Current generation filter
+        if criteria.current_generation == "yes":
+            filtered = [inst for inst in filtered if inst.current_generation]
+        elif criteria.current_generation == "no":
+            filtered = [inst for inst in filtered if not inst.current_generation]
+
+        # Burstable performance filter
+        if criteria.burstable == "yes":
+            filtered = [inst for inst in filtered if inst.burstable_performance_supported]
+        elif criteria.burstable == "no":
+            filtered = [inst for inst in filtered if not inst.burstable_performance_supported]
+
+        # Free tier filter (from advanced filters)
+        if criteria.free_tier == "yes":
+            filtered = [inst for inst in filtered if free_tier_service.is_eligible(inst.instance_type)]
+        elif criteria.free_tier == "no":
+            filtered = [inst for inst in filtered if not free_tier_service.is_eligible(inst.instance_type)]
+
+        # Architecture filter
+        if criteria.architecture != "any":
+            filtered = [
+                inst for inst in filtered
+                if criteria.architecture in inst.processor_info.supported_architectures
+            ]
+
+        # Family filter (comma-separated list)
+        if criteria.family_filter.strip():
+            families = [f.strip().lower() for f in criteria.family_filter.split(",") if f.strip()]
+            if families:
+                filtered = [
+                    inst for inst in filtered
+                    if any(extract_family_name(inst.instance_type).lower() == family for family in families)
+                ]
 
         self.filtered_instance_types = filtered
         # Preserve expanded state when filtering
@@ -513,10 +579,33 @@ class InstanceList(Screen):
             DebugLog.log(f"Error navigating to detail: {e}")
             # Ignore errors if row doesn't exist
 
-    def action_toggle_free_tier_filter(self) -> None:
-        """Toggle free tier filter"""
-        self.free_tier_filter = not self.free_tier_filter
-        self._apply_filters()
+    def action_show_filters(self) -> None:
+        """Show the filter modal"""
+        def handle_filter_result(criteria: Optional[FilterCriteria]) -> None:
+            """Handle the filter modal result"""
+            if criteria is not None:
+                self.filter_criteria = criteria
+                self._apply_filters()
+                # Update status bar to show active filters
+                if criteria.has_active_filters():
+                    status = self.query_one("#status-text", Static)
+                    filter_count = sum([
+                        1 if criteria.min_vcpu is not None else 0,
+                        1 if criteria.max_vcpu is not None else 0,
+                        1 if criteria.min_memory_gb is not None else 0,
+                        1 if criteria.max_memory_gb is not None else 0,
+                        1 if criteria.gpu_filter != "any" else 0,
+                        1 if criteria.current_generation != "any" else 0,
+                        1 if criteria.burstable != "any" else 0,
+                        1 if criteria.free_tier != "any" else 0,
+                        1 if criteria.architecture != "any" else 0,
+                        1 if criteria.family_filter.strip() else 0,
+                    ])
+                    status.update(f"🔍 {filter_count} filter(s) active - Showing {len(self.filtered_instance_types)} of {len(self.all_instance_types)} instances")
+                    # Clear message after 3 seconds
+                    self.set_timer(3.0, lambda: self._update_status_bar())
+
+        self.app.push_screen(FilterModal(self.filter_criteria), handle_filter_result)
 
     def action_focus_search(self) -> None:
         """Focus the search input"""
@@ -591,14 +680,7 @@ class InstanceList(Screen):
             status.update(f"Marked for comparison: {', '.join(marked_names)} ({len(self._marked_for_comparison)}/2)")
         else:
             # Restore normal status
-            free_tier_service = FreeTierService()
-            total = len(self.all_instance_types)
-            filtered = len(self.filtered_instance_types)
-            free_tier_count = sum(
-                1 for inst in self.filtered_instance_types
-                if free_tier_service.is_eligible(inst.instance_type)
-            )
-            status.update(f"Showing {filtered} of {total} instance types ({free_tier_count} free tier eligible)")
+            self._update_status_bar()
 
     def action_view_comparison(self) -> None:
         """View comparison of marked instances"""
@@ -668,17 +750,7 @@ class InstanceList(Screen):
             DebugLog.log(f"Exported to {json_file} and {csv_file}")
 
             # Clear message after 5 seconds
-            def clear_status():
-                free_tier_service = FreeTierService()
-                total = len(self.all_instance_types)
-                filtered = len(self.filtered_instance_types)
-                free_tier_count = sum(
-                    1 for inst in self.filtered_instance_types
-                    if free_tier_service.is_eligible(inst.instance_type)
-                )
-                status.update(f"Showing {filtered} of {total} instance types ({free_tier_count} free tier eligible)")
-
-            self.set_timer(5.0, clear_status)
+            self.set_timer(5.0, lambda: self._update_status_bar())
 
         except Exception as e:
             logger.error(f"Failed to export instances: {e}", exc_info=True)
