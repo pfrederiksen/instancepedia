@@ -2,6 +2,63 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation Maintenance - CRITICAL
+
+**ALWAYS update documentation when making changes!** This is non-negotiable for project maintainability.
+
+### When to Update CLAUDE.md
+
+Update `CLAUDE.md` when you:
+- Add new architectural patterns or best practices
+- Create new services or core components
+- Discover bugs or issues to avoid
+- Add new testing patterns
+- Change how async/threading works
+- Modify the TUI or CLI architecture
+- Add configuration options (timeouts, settings, etc.)
+- Learn something important about the codebase
+- Add new AWS client features or error handling
+
+**Examples**: New AWS client features, error handling patterns, caching mechanisms, testing strategies.
+
+### When to Update README.md
+
+Update `README.md` when you:
+- Add new CLI commands or flags
+- Add new TUI features or keyboard shortcuts
+- Change installation or setup instructions
+- Add new environment variables
+- Modify configuration options users can set
+- Add new features users will interact with
+- Change how the application works from a user perspective
+- Add new dependencies or requirements
+
+**Examples**: New `cache clear` command, timeout configuration via env vars, new filters, new output formats.
+
+### How to Update Documentation
+
+1. **Make code changes first**
+2. **Update documentation in the SAME commit/PR** - never defer documentation to later
+3. **Be specific** - include examples, code snippets, and clear explanations
+4. **Update both files if needed** - CLAUDE.md for developers, README.md for users
+5. **Test your examples** - ensure code snippets and commands actually work
+
+**Bad Practice**:
+```
+# Commit: Add timeout configuration
+- Changes: Added timeout settings to AWSClient
+- Documentation: None (will do later) ❌
+```
+
+**Good Practice**:
+```
+# Commit: Add timeout configuration
+- Changes: Added timeout settings to AWSClient
+- Documentation:
+  - CLAUDE.md: Added AWS Client Configuration section with implementation details
+  - README.md: Added environment variables section with examples ✅
+```
+
 ## Project Overview
 
 Instancepedia is an EC2 Instance Type Browser with both TUI (Terminal User Interface) and CLI (Command-Line Interface) modes. It provides detailed EC2 instance information, pricing (on-demand and spot), and free tier eligibility indicators.
