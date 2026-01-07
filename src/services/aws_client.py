@@ -4,6 +4,7 @@ import boto3
 import logging
 from typing import Optional
 from botocore.exceptions import ClientError, NoCredentialsError, BotoCoreError
+from botocore.config import Config
 
 from src.exceptions import (
     AWSCredentialsError,
@@ -17,7 +18,15 @@ logger = logging.getLogger("instancepedia")
 class AWSClient:
     """Wrapper for AWS clients"""
 
-    def __init__(self, region: str, profile: Optional[str] = None, validate_region: bool = False):
+    def __init__(
+        self,
+        region: str,
+        profile: Optional[str] = None,
+        validate_region: bool = False,
+        connect_timeout: int = 10,
+        read_timeout: int = 60,
+        pricing_timeout: int = 90
+    ):
         """
         Initialize AWS client
 
@@ -25,9 +34,15 @@ class AWSClient:
             region: AWS region code
             profile: Optional AWS profile name
             validate_region: If True, validate that region is accessible (slower but safer)
+            connect_timeout: Connection timeout in seconds (default: 10)
+            read_timeout: Read timeout for AWS API calls in seconds (default: 60)
+            pricing_timeout: Read timeout for pricing API calls in seconds (default: 90)
         """
         self.region = region
         self.profile = profile
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout
+        self.pricing_timeout = pricing_timeout
         self._ec2_client = None
         self._pricing_client = None
 
@@ -75,7 +90,13 @@ class AWSClient:
         if self._ec2_client is None:
             try:
                 session = self._get_session()
-                self._ec2_client = session.client("ec2", region_name=self.region)
+                # Configure timeouts for EC2 client
+                config = Config(
+                    connect_timeout=self.connect_timeout,
+                    read_timeout=self.read_timeout,
+                    retries={'max_attempts': 3, 'mode': 'standard'}
+                )
+                self._ec2_client = session.client("ec2", region_name=self.region, config=config)
             except NoCredentialsError as e:
                 logger.error("AWS credentials not found")
                 raise AWSCredentialsError(
@@ -107,8 +128,14 @@ class AWSClient:
         if self._pricing_client is None:
             try:
                 session = self._get_session()
+                # Configure timeouts for Pricing API client (can be slower)
+                config = Config(
+                    connect_timeout=self.connect_timeout,
+                    read_timeout=self.pricing_timeout,
+                    retries={'max_attempts': 3, 'mode': 'standard'}
+                )
                 # Pricing API is only available in us-east-1 and ap-south-1
-                self._pricing_client = session.client("pricing", region_name="us-east-1")
+                self._pricing_client = session.client("pricing", region_name="us-east-1", config=config)
             except NoCredentialsError as e:
                 logger.error("AWS credentials not found")
                 raise AWSCredentialsError(
@@ -145,7 +172,12 @@ class AWSClient:
         try:
             # Use a default region to query for accessible regions
             session = self._get_session()
-            ec2 = session.client("ec2", region_name="us-east-1")  # Use a standard region for the query
+            config = Config(
+                connect_timeout=self.connect_timeout,
+                read_timeout=self.read_timeout,
+                retries={'max_attempts': 3, 'mode': 'standard'}
+            )
+            ec2 = session.client("ec2", region_name="us-east-1", config=config)  # Use a standard region for the query
             # By default, describe_regions() returns only regions enabled for the account
             # This avoids trying to access regions that require opt-in or are disabled
             response = ec2.describe_regions()
