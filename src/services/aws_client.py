@@ -17,24 +17,57 @@ logger = logging.getLogger("instancepedia")
 class AWSClient:
     """Wrapper for AWS clients"""
 
-    def __init__(self, region: str, profile: Optional[str] = None):
+    def __init__(self, region: str, profile: Optional[str] = None, validate_region: bool = False):
         """
         Initialize AWS client
-        
+
         Args:
             region: AWS region code
             profile: Optional AWS profile name
+            validate_region: If True, validate that region is accessible (slower but safer)
         """
         self.region = region
         self.profile = profile
         self._ec2_client = None
         self._pricing_client = None
 
+        # Optionally validate region on initialization
+        if validate_region:
+            self._validate_region()
+
     def _get_session(self):
         """Get boto3 session"""
         if self.profile:
             return boto3.Session(profile_name=self.profile)
         return boto3.Session()
+
+    def _validate_region(self) -> None:
+        """
+        Validate that the region is accessible
+
+        Raises:
+            AWSRegionError: If region is invalid or not accessible
+            AWSCredentialsError: If credentials are missing
+            AWSConnectionError: If unable to connect to AWS
+        """
+        try:
+            accessible_regions = self.get_accessible_regions()
+            if self.region not in accessible_regions:
+                logger.error(f"Region '{self.region}' is not accessible")
+                raise AWSRegionError(
+                    f"Region '{self.region}' is not accessible. "
+                    f"This region may require opt-in or may not be enabled for your account.\n"
+                    f"Use 'instancepedia regions' to see available regions."
+                )
+        except AWSRegionError:
+            # Re-raise AWSRegionError as-is
+            raise
+        except (AWSCredentialsError, AWSConnectionError):
+            # Re-raise credential and connection errors as-is
+            raise
+        except Exception as e:
+            logger.error(f"Failed to validate region: {e}")
+            raise AWSConnectionError(f"Failed to validate region '{self.region}': {str(e)}") from e
 
     @property
     def ec2_client(self):
@@ -51,7 +84,19 @@ class AWSClient:
                     "  - Environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY\n"
                     "  - Or specify a profile with --profile"
                 ) from e
-            except (ClientError, BotoCoreError) as e:
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "Unknown")
+                # Check for region-specific errors
+                if error_code in ("InvalidRegionName", "UnauthorizedOperation"):
+                    logger.error(f"Region '{self.region}' error: {error_code}")
+                    raise AWSRegionError(
+                        f"Cannot access region '{self.region}'. "
+                        f"The region may be invalid or not enabled for your account.\n"
+                        f"Use 'instancepedia regions' to see available regions."
+                    ) from e
+                logger.error(f"Failed to create EC2 client: {e}")
+                raise AWSConnectionError(f"Failed to create EC2 client: {str(e)}") from e
+            except BotoCoreError as e:
                 logger.error(f"Failed to create EC2 client: {e}")
                 raise AWSConnectionError(f"Failed to create EC2 client: {str(e)}") from e
         return self._ec2_client
