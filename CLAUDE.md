@@ -198,8 +198,158 @@ Requires Python >= 3.9 (for async features and type hints).
 
 - Main branch: `main`
 - Feature branches: `feature/<name>` (e.g., `feature/async-boto3`)
+- Fix branches: `fix/<name>` (e.g., `fix/p0-error-handling-and-tests`)
 - Create branch before starting work
 - Merge to main after testing
+
+### Caching System
+
+The pricing cache (`src/cache.py`) provides persistent storage for pricing data:
+
+**Architecture**:
+- File-based cache in `~/.instancepedia/cache/`
+- Individual JSON files per cache entry: `{region}_{instance_type}_{price_type}.json`
+- Default TTL: 4 hours (configurable)
+- Thread-safe using `threading.Lock()`
+- Caches both successful lookups AND None values (to avoid repeated failures)
+
+**Usage**:
+- Both sync (`PricingService`) and async (`AsyncPricingService`) use the same cache
+- Cache is checked first before API calls
+- Results (including None) are cached to reduce API calls
+- Cache statistics: `cache.get_stats()` returns total/valid/expired entries, size, age
+- Cache management: `cache.clear()` with optional filters (region, instance_type)
+
+**Cache Key Format**:
+- Dots replaced with underscores: `us-east-1_t3_micro_on_demand.json`
+- Separate files for on_demand vs spot prices
+
+**Thread Safety**:
+- All operations use `self._lock` for thread safety
+- Safe for concurrent access from TUI and CLI modes
+- Tested with ThreadPoolExecutor for concurrent operations
+
+### Logging System
+
+The logging system (`src/logging_config.py`) provides structured logging:
+
+**Setup**:
+- Use `logging.getLogger("instancepedia")` at module level
+- Import logging: `import logging` then `logger = logging.getLogger("instancepedia")`
+- TUI mode: Logs go to debug pane only (no console handler)
+- CLI mode: Logs go to stderr
+
+**Log Levels**:
+- `logger.debug()` - Verbose information, cache hits, UI state changes
+- `logger.info()` - General information, operations completed
+- `logger.warning()` - Unexpected but recoverable situations
+- `logger.error()` - Errors that need attention
+
+**Example**:
+```python
+import logging
+
+logger = logging.getLogger("instancepedia")
+
+try:
+    result = some_operation()
+except Exception as e:
+    logger.error(f"Operation failed: {e}", exc_info=True)
+```
+
+## Error Handling Best Practices
+
+### Exception Handling
+
+**NEVER use bare `except:` blocks** - they hide errors and make debugging difficult.
+
+**Good**:
+```python
+try:
+    widget.update("status")
+except Exception as e:
+    # Explain WHY this exception is expected
+    logger.debug(f"Widget may not exist during screen transition: {e}")
+```
+
+**Bad**:
+```python
+try:
+    widget.update("status")
+except:  # ❌ Bare except - hides all errors
+    pass
+```
+
+**Pattern for expected exceptions**:
+```python
+try:
+    # Operation that may fail for valid reasons
+    self.screen.pop_screen()
+except Exception as e:
+    # Log at debug level with explanation of why it's expected
+    logger.debug(f"Screen already popped or app shutting down: {e}")
+```
+
+**Pattern for unexpected exceptions**:
+```python
+try:
+    # Critical operation that should succeed
+    result = fetch_critical_data()
+except Exception as e:
+    # Log at error level with full traceback
+    logger.error(f"Critical operation failed: {e}", exc_info=True)
+    # Handle the error appropriately (return None, raise custom exception, etc.)
+    return None
+```
+
+### Testing Services
+
+When adding new services or modifying existing ones, always add comprehensive tests:
+
+**PricingService Test Pattern** (`tests/test_pricing_service.py`):
+```python
+@pytest.fixture
+def pricing_service(mock_aws_client):
+    """Create PricingService with mocked dependencies"""
+    with patch('src.services.pricing_service.get_pricing_cache') as mock_get_cache:
+        mock_cache = Mock()
+        mock_cache.get = Mock(return_value=None)  # Cache miss
+        mock_cache.set = Mock()
+        mock_get_cache.return_value = mock_cache
+
+        service = PricingService(mock_aws_client, use_cache=True)
+        service.cache = mock_cache  # Store reference for assertions
+        return service
+
+def test_cache_hit(pricing_service):
+    """Test cache returns immediately without API call"""
+    pricing_service.cache.get.return_value = 0.0104
+
+    price = pricing_service.get_on_demand_price("t3.micro", "us-east-1")
+
+    assert price == 0.0104
+    pricing_service.cache.set.assert_not_called()  # No cache write on hit
+```
+
+**Cache Thread Safety Test Pattern** (`tests/test_cache.py`):
+```python
+def test_concurrent_writes(cache):
+    """Test multiple threads writing to same key"""
+    num_threads = 10
+
+    def write_price(thread_id):
+        price = 0.01 + (thread_id * 0.001)
+        cache.set("us-east-1", "t3.micro", "on_demand", price)
+        return price
+
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(write_price, i) for i in range(num_threads)]
+        results = [f.result() for f in as_completed(futures)]
+
+    # Verify no corruption - final value should be one of the written values
+    final_price = cache.get("us-east-1", "t3.micro", "on_demand")
+    assert final_price in results
+```
 
 ## Known Issues to Avoid
 
@@ -218,3 +368,30 @@ Test helper/container classes should NOT start with `Test*` or pytest will try t
 ### UI Updates from Async Workers
 
 When updating UI from `run_worker()` async functions, use `self.call_later(callback)` to schedule on main thread. Do NOT call widget methods directly from worker thread.
+
+### Missing Logger Import
+
+If you add `logger.debug()` or other logging calls to a file, make sure the file has:
+
+1. `import logging` at the top
+2. `logger = logging.getLogger("instancepedia")` at module level (after imports)
+
+**Example** (from `src/app.py`):
+```python
+"""Main application class"""
+
+import asyncio
+import logging  # ← Must import logging
+from textual.app import App, ComposeResult
+# ... other imports ...
+
+logger = logging.getLogger("instancepedia")  # ← Create logger at module level
+
+
+class InstancepediaApp(App):
+    # Now can use logger anywhere in the class
+    def some_method(self):
+        logger.debug("Operation starting")
+```
+
+Without these, you'll get `NameError: name 'logger' is not defined` at runtime.
