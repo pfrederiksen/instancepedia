@@ -109,6 +109,7 @@ class InstanceList(Screen):
         ("escape", "back", "Back"),
         ("f", "show_filters", "Filters"),
         ("s", "cycle_sort", "Sort"),
+        ("r", "retry_pricing", "Retry Pricing"),
         ("/", "focus_search", "Search"),
         ("c", "mark_for_comparison", "Mark for Compare"),
         ("v", "view_comparison", "View Compare"),
@@ -126,6 +127,8 @@ class InstanceList(Screen):
         self.sort_option = SortOption.DEFAULT  # Current sort option
         self._pricing_loading = True  # Track if pricing is being loaded
         self._pricing_loaded_count = 0  # Track how many prices have been loaded
+        self._pricing_failed_count = 0  # Track how many pricing requests failed
+        self._pricing_error_message = None  # Store last pricing error message
         self._instance_type_map: Dict[str, InstanceType] = {}  # Map instance type names to objects
         self._family_nodes: List['TreeNode'] = []  # Store family nodes to expand when category expands
         self._expanded_categories: set = set()  # Track expanded categories to preserve state
@@ -156,7 +159,7 @@ class InstanceList(Screen):
                 with Horizontal(id="status-bar"):
                     yield Static("", id="status-text")
                 yield Static(
-                    "Enter: View | /: Search | F: Filters | S: Sort | C: Mark | V: Compare | E: Export | Esc: Back | Q: Quit",
+                    "Enter: View | /: Search | F: Filters | S: Sort | R: Retry | C: Mark | V: Compare | E: Export | Esc: Back | Q: Quit",
                     id="help-text"
                 )
             if DebugLog.is_enabled():
@@ -378,6 +381,9 @@ class InstanceList(Screen):
                 status += f" | ⏳ Loading prices... ({pricing_loaded}/{filtered})"
             else:
                 status += " | ⏳ Loading prices..."
+        elif self._pricing_failed_count > 0:
+            # Show failed pricing count and offer retry
+            status += f" | ⚠️ {self._pricing_failed_count} prices unavailable (Press R to retry)"
 
         self.query_one("#status-text", Static).update(status)
 
@@ -595,6 +601,33 @@ class InstanceList(Screen):
         status.update(f"📊 Sorted by: {self.sort_option.display_name}")
         self.set_timer(3.0, lambda: self._update_status_bar())
 
+    def action_retry_pricing(self) -> None:
+        """Retry fetching pricing for instances that failed"""
+        # Check if there are failed instances
+        failed_instances = [
+            inst for inst in self.all_instance_types
+            if not inst.pricing or inst.pricing.on_demand_price is None
+        ]
+
+        if not failed_instances:
+            # No failed instances, show message
+            status = self.query_one("#status-text", Static)
+            status.update("✓ All instances already have pricing")
+            self.set_timer(3.0, lambda: self._update_status_bar())
+            return
+
+        # Show retry message
+        status = self.query_one("#status-text", Static)
+        status.update(f"🔄 Retrying pricing for {len(failed_instances)} instances...")
+
+        # Trigger app to retry pricing
+        if hasattr(self.app, '_retry_pricing_for_instances'):
+            self.app._retry_pricing_for_instances(self, failed_instances)
+        else:
+            # Fallback: show message that retry isn't available
+            status.update("⚠️ Pricing retry not available")
+            self.set_timer(3.0, lambda: self._update_status_bar())
+
     def action_show_filters(self) -> None:
         """Show the filter modal"""
         def handle_filter_result(criteria: Optional[FilterCriteria]) -> None:
@@ -778,19 +811,21 @@ class InstanceList(Screen):
         """Quit application"""
         self.app.exit()
     
-    def mark_pricing_loading(self, loading: bool, cache_hits: int = 0, total_prices: int = 0) -> None:
+    def mark_pricing_loading(self, loading: bool, cache_hits: int = 0, total_prices: int = 0, failed_count: int = 0) -> None:
         """Mark pricing loading state and update cache statistics
 
         Args:
             loading: Whether pricing is currently loading
             cache_hits: Number of prices loaded from cache (only used when loading=False)
             total_prices: Total number of prices loaded (only used when loading=False)
+            failed_count: Number of pricing requests that failed (only used when loading=False)
         """
         self._pricing_loading = loading
         if not loading:
-            # Store cache statistics when pricing is complete
+            # Store cache statistics and failed count when pricing is complete
             self._cache_hits = cache_hits
             self._total_prices = total_prices
+            self._pricing_failed_count = failed_count
         self._update_pricing_header()
         # Only rebuild tree if it's the first time (not during pricing updates)
         if not hasattr(self, '_tree_initialized'):
