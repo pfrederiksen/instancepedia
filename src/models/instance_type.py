@@ -30,6 +30,22 @@ class NetworkInfo:
     maximum_network_interfaces: int
     maximum_ipv4_addresses_per_interface: int
     maximum_ipv6_addresses_per_interface: int
+    baseline_bandwidth_in_gbps: Optional[float] = None
+    peak_bandwidth_in_gbps: Optional[float] = None
+
+    def format_bandwidth(self) -> str:
+        """Format bandwidth information for display"""
+        if self.baseline_bandwidth_in_gbps and self.peak_bandwidth_in_gbps:
+            if self.baseline_bandwidth_in_gbps == self.peak_bandwidth_in_gbps:
+                return f"{self.baseline_bandwidth_in_gbps} Gbps"
+            else:
+                return f"{self.baseline_bandwidth_in_gbps}-{self.peak_bandwidth_in_gbps} Gbps (baseline-peak)"
+        elif self.baseline_bandwidth_in_gbps:
+            return f"{self.baseline_bandwidth_in_gbps} Gbps (baseline)"
+        elif self.peak_bandwidth_in_gbps:
+            return f"Up to {self.peak_bandwidth_in_gbps} Gbps"
+        else:
+            return self.network_performance
 
 
 @dataclass
@@ -99,6 +115,8 @@ class PricingInfo:
     """Pricing information"""
     on_demand_price: Optional[float] = None  # Price per hour in USD
     spot_price: Optional[float] = None  # Current spot price per hour in USD
+    savings_plan_1yr_no_upfront: Optional[float] = None  # 1-year savings plan, no upfront
+    savings_plan_3yr_no_upfront: Optional[float] = None  # 3-year savings plan, no upfront
 
     def format_on_demand(self) -> str:
         """Format on-demand price for display"""
@@ -111,6 +129,42 @@ class PricingInfo:
         if self.spot_price is None:
             return "N/A"
         return f"${self.spot_price:.4f}/hr"
+
+    def format_savings_plan_1yr(self) -> str:
+        """Format 1-year savings plan price for display"""
+        if self.savings_plan_1yr_no_upfront is None:
+            return "N/A"
+        return f"${self.savings_plan_1yr_no_upfront:.4f}/hr"
+
+    def format_savings_plan_3yr(self) -> str:
+        """Format 3-year savings plan price for display"""
+        if self.savings_plan_3yr_no_upfront is None:
+            return "N/A"
+        return f"${self.savings_plan_3yr_no_upfront:.4f}/hr"
+
+    def calculate_savings_percentage(self, price_type: str = "1yr") -> Optional[float]:
+        """Calculate savings percentage compared to on-demand
+
+        Args:
+            price_type: Either "1yr", "3yr", or "spot"
+
+        Returns:
+            Savings percentage (0-100) or None if prices not available
+        """
+        if self.on_demand_price is None:
+            return None
+
+        if price_type == "1yr" and self.savings_plan_1yr_no_upfront:
+            savings = (self.on_demand_price - self.savings_plan_1yr_no_upfront) / self.on_demand_price * 100
+            return max(0, savings)
+        elif price_type == "3yr" and self.savings_plan_3yr_no_upfront:
+            savings = (self.on_demand_price - self.savings_plan_3yr_no_upfront) / self.on_demand_price * 100
+            return max(0, savings)
+        elif price_type == "spot" and self.spot_price:
+            savings = (self.on_demand_price - self.spot_price) / self.on_demand_price * 100
+            return max(0, savings)
+
+        return None
 
     def calculate_monthly_cost(self, hours_per_month: float = 730) -> Optional[float]:
         """Calculate monthly cost based on hours per month (default 730 = 24*365/12)"""
@@ -142,6 +196,38 @@ class InstanceType:
     hibernation_supported: bool = False
     pricing: Optional[PricingInfo] = None
 
+    @property
+    def generation(self) -> Optional[int]:
+        """Extract generation number from instance type name
+
+        Examples:
+            m6i.large -> 6
+            t3.micro -> 3
+            c7g.xlarge -> 7
+            mac2.metal -> 2
+        """
+        import re
+        # Match pattern: family + generation number (e.g., m6, t3, c7)
+        match = re.search(r'[a-z]+(\d+)', self.instance_type)
+        if match:
+            return int(match.group(1))
+        return None
+
+    @property
+    def generation_label(self) -> str:
+        """Format generation as human-readable label"""
+        gen = self.generation
+        if gen is None:
+            return "Unknown generation"
+
+        # Handle special cases for ordinal suffix
+        if 10 <= gen % 100 <= 20:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(gen % 10, "th")
+
+        return f"{gen}{suffix} gen"
+
     @classmethod
     def from_aws_response(cls, data: dict) -> "InstanceType":
         """Create InstanceType from AWS API response"""
@@ -162,11 +248,24 @@ class InstanceType:
             size_in_mib=memory_data.get("SizeInMiB", 0)
         )
 
+        # Extract bandwidth information from NetworkCards if available
+        baseline_bandwidth = None
+        peak_bandwidth = None
+        network_cards = network_data.get("NetworkCards")
+        if network_cards:
+            # Sum bandwidth across all network cards (for multi-card instances)
+            baseline_sum = sum(card.get("BaselineBandwidthInGbps", 0) for card in network_cards if card.get("BaselineBandwidthInGbps"))
+            peak_sum = sum(card.get("PeakBandwidthInGbps", 0) for card in network_cards if card.get("PeakBandwidthInGbps"))
+            baseline_bandwidth = baseline_sum if baseline_sum > 0 else None
+            peak_bandwidth = peak_sum if peak_sum > 0 else None
+
         network_info = NetworkInfo(
             network_performance=network_data.get("NetworkPerformance", "Unknown"),
             maximum_network_interfaces=network_data.get("MaximumNetworkInterfaces", 0),
             maximum_ipv4_addresses_per_interface=network_data.get("Ipv4AddressesPerInterface", 0),
             maximum_ipv6_addresses_per_interface=network_data.get("Ipv6AddressesPerInterface", 0),
+            baseline_bandwidth_in_gbps=baseline_bandwidth,
+            peak_bandwidth_in_gbps=peak_bandwidth,
         )
 
         processor_info = ProcessorInfo(

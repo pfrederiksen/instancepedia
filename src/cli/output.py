@@ -111,6 +111,9 @@ class TableFormatter(OutputFormatter):
         # Network
         lines.append("Network:")
         lines.append(f"  Performance: {instance.network_info.network_performance}")
+        if instance.network_info.baseline_bandwidth_in_gbps or instance.network_info.peak_bandwidth_in_gbps:
+            bandwidth_display = instance.network_info.format_bandwidth()
+            lines.append(f"  Bandwidth: {bandwidth_display}")
         lines.append(f"  Max Network Interfaces: {instance.network_info.maximum_network_interfaces}")
         lines.append(f"  Max IPv4 per Interface: {instance.network_info.maximum_ipv4_addresses_per_interface}")
         lines.append(f"  Max IPv6 per Interface: {instance.network_info.maximum_ipv6_addresses_per_interface}")
@@ -135,6 +138,7 @@ class TableFormatter(OutputFormatter):
         
         # Features
         lines.append("Features:")
+        lines.append(f"  Generation: {instance.generation_label}")
         lines.append(f"  Current Generation: {instance.current_generation}")
         lines.append(f"  Burstable Performance: {instance.burstable_performance_supported}")
         lines.append(f"  Hibernation: {instance.hibernation_supported}")
@@ -163,6 +167,23 @@ class TableFormatter(OutputFormatter):
                     lines.append(f"  Spot Savings: {savings:.1f}%")
             else:
                 lines.append("  Spot: N/A")
+
+            # Savings Plans pricing
+            if instance.pricing.savings_plan_1yr_no_upfront is not None:
+                lines.append(f"  1-Year Savings Plan: ${instance.pricing.savings_plan_1yr_no_upfront:.4f}/hr")
+                savings_1yr = instance.pricing.calculate_savings_percentage("1yr")
+                if savings_1yr:
+                    lines.append(f"  1-Year Savings: {savings_1yr:.1f}%")
+            else:
+                lines.append("  1-Year Savings Plan: N/A")
+
+            if instance.pricing.savings_plan_3yr_no_upfront is not None:
+                lines.append(f"  3-Year Savings Plan: ${instance.pricing.savings_plan_3yr_no_upfront:.4f}/hr")
+                savings_3yr = instance.pricing.calculate_savings_percentage("3yr")
+                if savings_3yr:
+                    lines.append(f"  3-Year Savings: {savings_3yr:.1f}%")
+            else:
+                lines.append("  3-Year Savings Plan: N/A")
         else:
             lines.append("Pricing: Not available")
         
@@ -204,7 +225,25 @@ class TableFormatter(OutputFormatter):
                 lines.append(f"Spot Savings: {savings:.1f}%")
         else:
             lines.append("Spot: N/A")
-        
+
+        # Savings Plans pricing
+        lines.append("")
+        if instance.pricing.savings_plan_1yr_no_upfront is not None:
+            lines.append(f"1-Year Savings Plan: ${instance.pricing.savings_plan_1yr_no_upfront:.4f}/hr")
+            savings_1yr = instance.pricing.calculate_savings_percentage("1yr")
+            if savings_1yr:
+                lines.append(f"1-Year Savings: {savings_1yr:.1f}%")
+        else:
+            lines.append("1-Year Savings Plan: N/A")
+
+        if instance.pricing.savings_plan_3yr_no_upfront is not None:
+            lines.append(f"3-Year Savings Plan: ${instance.pricing.savings_plan_3yr_no_upfront:.4f}/hr")
+            savings_3yr = instance.pricing.calculate_savings_percentage("3yr")
+            if savings_3yr:
+                lines.append(f"3-Year Savings: {savings_3yr:.1f}%")
+        else:
+            lines.append("3-Year Savings Plan: N/A")
+
         return "\n".join(lines)
     
     def format_comparison(self, instance1: InstanceType, instance2: InstanceType, region: str) -> str:
@@ -213,10 +252,18 @@ class TableFormatter(OutputFormatter):
         
         rows = [
             ["Instance Type", instance1.instance_type, instance2.instance_type],
+            ["Generation", instance1.generation_label, instance2.generation_label],
             ["vCPU", str(instance1.vcpu_info.default_vcpus), str(instance2.vcpu_info.default_vcpus)],
             ["Memory (GB)", f"{instance1.memory_info.size_in_gb:.1f}", f"{instance2.memory_info.size_in_gb:.1f}"],
             ["Network", instance1.network_info.network_performance, instance2.network_info.network_performance],
         ]
+
+        # Add bandwidth if available
+        if instance1.network_info.baseline_bandwidth_in_gbps or instance1.network_info.peak_bandwidth_in_gbps or \
+           instance2.network_info.baseline_bandwidth_in_gbps or instance2.network_info.peak_bandwidth_in_gbps:
+            bandwidth1 = instance1.network_info.format_bandwidth()
+            bandwidth2 = instance2.network_info.format_bandwidth()
+            rows.append(["Bandwidth", bandwidth1, bandwidth2])
         
         # Pricing comparison
         price1 = f"${instance1.pricing.on_demand_price:.4f}" if (instance1.pricing and instance1.pricing.on_demand_price) else "N/A"

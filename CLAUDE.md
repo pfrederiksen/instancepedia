@@ -249,6 +249,24 @@ Located in `src/models/`:
 
 Models use Pydantic v2 for validation and serialization.
 
+**NetworkInfo enhancements**:
+- `baseline_bandwidth_in_gbps` - Baseline network bandwidth from AWS NetworkCards
+- `peak_bandwidth_in_gbps` - Peak/burst network bandwidth from AWS NetworkCards
+- `format_bandwidth()` - Formats bandwidth as human-readable string (e.g., "0.781-12.5 Gbps (baseline-peak)")
+- Bandwidth is summed across multiple network cards for multi-card instances
+
+**InstanceType enhancements**:
+- `generation` property - Extracts generation number from instance type name (e.g., "m6i" → 6)
+- `generation_label` property - Formats generation as human-readable label (e.g., "6th gen", "3rd gen")
+- Uses regex pattern matching to extract generation: `[a-z]+(\d+)`
+
+**PricingInfo enhancements**:
+- `savings_plan_1yr_no_upfront` - 1-year savings plan pricing (no upfront payment)
+- `savings_plan_3yr_no_upfront` - 3-year savings plan pricing (no upfront payment)
+- `format_savings_plan_1yr()` / `format_savings_plan_3yr()` - Format savings plan prices
+- `calculate_savings_percentage(price_type)` - Calculate savings vs on-demand (supports "1yr", "3yr", "spot")
+- Savings plans pricing will show "N/A" until fetching is implemented
+
 ### Configuration
 
 **`src/config/settings.py`**: Uses `pydantic-settings` for environment-based config:

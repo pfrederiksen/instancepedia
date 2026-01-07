@@ -59,10 +59,12 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 - 📊 **Detailed Information**: Comprehensive details for each instance type including:
   - Compute specifications (vCPU, cores, threads)
   - Memory information
-  - Network performance
+  - **Network performance with baseline/peak bandwidth** (e.g., "0.781-12.5 Gbps")
+  - **Instance generation indicator** (e.g., "6th gen" for m6i instances)
   - Storage options (EBS, instance store)
   - Architecture support
-  - Pricing and cost analysis with spot price savings
+  - **Comprehensive pricing**: On-demand, spot, and savings plans (1-year, 3-year)
+  - Cost analysis with monthly/annual estimates and savings percentages
 - 🆓 **Free Tier Indicators**: Clearly marked free tier eligible instances
 - ⚡ **Fast Navigation**: Smooth screen transitions with loading indicators
 - 🐛 **Debug Mode**: Scrolling debug log for troubleshooting (use `--debug` flag)

@@ -115,6 +115,9 @@ class InstanceDetail(Screen):
             # Network
             lines.append("Network")
             lines.append(f"  • Performance:       {inst.network_info.network_performance}")
+            if inst.network_info.baseline_bandwidth_in_gbps or inst.network_info.peak_bandwidth_in_gbps:
+                bandwidth_display = inst.network_info.format_bandwidth()
+                lines.append(f"  • Bandwidth:         {bandwidth_display}")
             lines.append(f"  • Max Interfaces:    {inst.network_info.maximum_network_interfaces}")
             lines.append(f"  • Max IPv4 per ENI:  {inst.network_info.maximum_ipv4_addresses_per_interface}")
             lines.append(f"  • Max IPv6 per ENI:  {inst.network_info.maximum_ipv6_addresses_per_interface}")
@@ -146,6 +149,7 @@ class InstanceDetail(Screen):
 
             # Additional Info
             lines.append("Additional Info")
+            lines.append(f"  • Generation:                {inst.generation_label}")
             lines.append(f"  • Burstable Performance:     {'Yes' if inst.burstable_performance_supported else 'No'}")
             lines.append(f"  • Current Generation:        {'Yes' if inst.current_generation else 'No'}")
             lines.append(f"  • Hibernation Supported:      {'Yes' if inst.hibernation_supported else 'No'}")
@@ -191,6 +195,24 @@ class InstanceDetail(Screen):
                     lines.append("  • Current Spot Price:     Loading...")
                 else:
                     lines.append("  • Current Spot Price:     Not available")
+
+                # Savings Plans pricing
+                lines.append("")
+                if inst.pricing.savings_plan_1yr_no_upfront:
+                    lines.append(f"  • 1-Year Savings Plan:    ${inst.pricing.savings_plan_1yr_no_upfront:.4f} per hour")
+                    savings_1yr = inst.pricing.calculate_savings_percentage("1yr")
+                    if savings_1yr:
+                        lines.append(f"  • 1-Year Savings:         {savings_1yr:.1f}% off on-demand")
+                else:
+                    lines.append("  • 1-Year Savings Plan:    Not available")
+
+                if inst.pricing.savings_plan_3yr_no_upfront:
+                    lines.append(f"  • 3-Year Savings Plan:    ${inst.pricing.savings_plan_3yr_no_upfront:.4f} per hour")
+                    savings_3yr = inst.pricing.calculate_savings_percentage("3yr")
+                    if savings_3yr:
+                        lines.append(f"  • 3-Year Savings:         {savings_3yr:.1f}% off on-demand")
+                else:
+                    lines.append("  • 3-Year Savings Plan:    Not available")
             else:
                 lines.append("  • Pricing information:     Not loaded")
                 lines.append("  • (Pricing is fetched in the background)")
