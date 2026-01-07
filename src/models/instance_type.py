@@ -60,6 +60,41 @@ class InstanceStorageInfo:
 
 
 @dataclass
+class GpuDevice:
+    """GPU device information"""
+    name: str
+    manufacturer: str
+    count: int
+    memory_in_mib: Optional[int] = None
+
+    @property
+    def memory_in_gb(self) -> Optional[float]:
+        """Convert GPU memory from MiB to GB"""
+        if self.memory_in_mib is None:
+            return None
+        return self.memory_in_mib / 1024.0
+
+
+@dataclass
+class GpuInfo:
+    """GPU/Accelerator information"""
+    gpus: List[GpuDevice]
+    total_gpu_memory_in_mib: Optional[int] = None
+
+    @property
+    def total_gpu_count(self) -> int:
+        """Total number of GPUs across all devices"""
+        return sum(gpu.count for gpu in self.gpus)
+
+    @property
+    def total_gpu_memory_in_gb(self) -> Optional[float]:
+        """Total GPU memory in GB"""
+        if self.total_gpu_memory_in_mib is None:
+            return None
+        return self.total_gpu_memory_in_mib / 1024.0
+
+
+@dataclass
 class PricingInfo:
     """Pricing information"""
     on_demand_price: Optional[float] = None  # Price per hour in USD
@@ -101,6 +136,7 @@ class InstanceType:
     processor_info: ProcessorInfo
     ebs_info: EbsInfo
     instance_storage_info: Optional[InstanceStorageInfo] = None
+    gpu_info: Optional[GpuInfo] = None
     current_generation: bool = True
     burstable_performance_supported: bool = False
     hibernation_supported: bool = False
@@ -151,6 +187,26 @@ class InstanceType:
                 nvme_support=storage_data.get("NvmeSupport"),
             )
 
+        # Parse GPU information
+        gpu_info = None
+        gpu_data = data.get("GpuInfo")
+        if gpu_data and gpu_data.get("Gpus"):
+            gpu_devices = []
+            for gpu_device_data in gpu_data.get("Gpus", []):
+                memory_info_data = gpu_device_data.get("MemoryInfo", {})
+                gpu_device = GpuDevice(
+                    name=gpu_device_data.get("Name", "Unknown"),
+                    manufacturer=gpu_device_data.get("Manufacturer", "Unknown"),
+                    count=gpu_device_data.get("Count", 1),
+                    memory_in_mib=memory_info_data.get("SizeInMiB"),
+                )
+                gpu_devices.append(gpu_device)
+
+            gpu_info = GpuInfo(
+                gpus=gpu_devices,
+                total_gpu_memory_in_mib=gpu_data.get("TotalGpuMemoryInMiB"),
+            )
+
         return cls(
             instance_type=data.get("InstanceType", ""),
             vcpu_info=vcpu_info,
@@ -159,6 +215,7 @@ class InstanceType:
             processor_info=processor_info,
             ebs_info=ebs_info,
             instance_storage_info=instance_storage_info,
+            gpu_info=gpu_info,
             current_generation=data.get("CurrentGeneration", True),
             burstable_performance_supported=data.get("BurstablePerformanceSupported", False),
             hibernation_supported=data.get("HibernationSupported", False),

@@ -94,7 +94,20 @@ class TableFormatter(OutputFormatter):
         memory_str = f"{memory_gb:.1f} GB" if memory_gb >= 1 else f"{memory_gb:.2f} GB"
         lines.append(f"Memory: {memory_str}")
         lines.append("")
-        
+
+        # GPU/Accelerators
+        if instance.gpu_info:
+            lines.append("GPU/Accelerators:")
+            lines.append(f"  Total GPUs: {instance.gpu_info.total_gpu_count}")
+            for gpu_device in instance.gpu_info.gpus:
+                gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
+                lines.append(f"  {gpu_name}: {gpu_device.count}x")
+                if gpu_device.memory_in_gb:
+                    lines.append(f"    Memory per GPU: {gpu_device.memory_in_gb:.0f} GB")
+            if instance.gpu_info.total_gpu_memory_in_gb:
+                lines.append(f"  Total GPU Memory: {instance.gpu_info.total_gpu_memory_in_gb:.0f} GB")
+            lines.append("")
+
         # Network
         lines.append("Network:")
         lines.append(f"  Performance: {instance.network_info.network_performance}")
