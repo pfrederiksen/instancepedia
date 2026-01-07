@@ -107,6 +107,8 @@ class InstanceList(Screen):
         ("escape", "back", "Back"),
         ("f", "toggle_free_tier_filter", "Filter Free Tier"),
         ("/", "focus_search", "Search"),
+        ("c", "mark_for_comparison", "Mark for Compare"),
+        ("v", "view_comparison", "View Compare"),
     ]
 
     def __init__(self, instance_types: List[InstanceType], region: str):
@@ -125,6 +127,7 @@ class InstanceList(Screen):
         self._last_pricing_update_count = 0  # Track pricing updates to throttle tree rebuilds
         self._cache_hits = 0  # Track actual cache hits during pricing fetch
         self._total_prices = 0  # Track total prices loaded
+        self._marked_for_comparison: List[InstanceType] = []  # Track instances marked for comparison
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -147,7 +150,7 @@ class InstanceList(Screen):
                 with Horizontal(id="status-bar"):
                     yield Static("", id="status-text")
                 yield Static(
-                    "Enter: View Details | Space: Expand/Collapse | Esc: Back | Q: Quit | /: Search | F: Filter Free Tier",
+                    "Enter: View | Space: Expand | /: Search | F: Filter | C: Mark Compare | V: View Compare | Esc: Back | Q: Quit",
                     id="help-text"
                 )
             if DebugLog.is_enabled():
@@ -202,10 +205,14 @@ class InstanceList(Screen):
             memory_str,
             price_str
         ]
-        
+
         if is_free_tier:
             label_parts.append("🆓")
-        
+
+        # Add comparison marker if instance is marked
+        if instance in self._marked_for_comparison:
+            label_parts.append("[COMPARE]")
+
         return " | ".join(label_parts)
 
     def _populate_tree(self) -> None:
@@ -545,6 +552,72 @@ class InstanceList(Screen):
         import asyncio
         loop = asyncio.get_event_loop()
         loop.create_task(dismiss_after_region_mounts())
+
+    def action_mark_for_comparison(self) -> None:
+        """Mark/unmark current instance for comparison"""
+        tree = self.query_one("#instance-tree", Tree)
+        if not tree.cursor_node:
+            return
+
+        # Check if this is an instance node (has data)
+        if not tree.cursor_node.data:
+            return
+
+        instance_type_name = tree.cursor_node.data
+        instance = self._instance_type_map.get(instance_type_name)
+        if not instance:
+            return
+
+        # Toggle marking
+        if instance in self._marked_for_comparison:
+            self._marked_for_comparison.remove(instance)
+            DebugLog.log(f"Unmarked {instance_type_name} for comparison")
+        else:
+            # Limit to 2 instances for comparison
+            if len(self._marked_for_comparison) >= 2:
+                # Remove the oldest marked instance
+                self._marked_for_comparison.pop(0)
+            self._marked_for_comparison.append(instance)
+            DebugLog.log(f"Marked {instance_type_name} for comparison ({len(self._marked_for_comparison)}/2)")
+
+        # Rebuild tree to update labels
+        self._populate_tree()
+
+        # Update status bar to show marked count
+        status = self.query_one("#status-text", Static)
+        if len(self._marked_for_comparison) > 0:
+            marked_names = [inst.instance_type for inst in self._marked_for_comparison]
+            status.update(f"Marked for comparison: {', '.join(marked_names)} ({len(self._marked_for_comparison)}/2)")
+        else:
+            # Restore normal status
+            free_tier_service = FreeTierService()
+            total = len(self.all_instance_types)
+            filtered = len(self.filtered_instance_types)
+            free_tier_count = sum(
+                1 for inst in self.filtered_instance_types
+                if free_tier_service.is_eligible(inst.instance_type)
+            )
+            status.update(f"Showing {filtered} of {total} instance types ({free_tier_count} free tier eligible)")
+
+    def action_view_comparison(self) -> None:
+        """View comparison of marked instances"""
+        if len(self._marked_for_comparison) != 2:
+            # Show message that we need exactly 2 instances
+            status = self.query_one("#status-text", Static)
+            if len(self._marked_for_comparison) == 0:
+                status.update("No instances marked for comparison. Press 'C' to mark instances.")
+            elif len(self._marked_for_comparison) == 1:
+                status.update(f"Only 1 instance marked. Mark one more instance with 'C' to compare.")
+            return
+
+        # Push comparison screen
+        from src.ui.instance_comparison import InstanceComparison
+        comparison_screen = InstanceComparison(
+            self._marked_for_comparison[0],
+            self._marked_for_comparison[1],
+            self._region
+        )
+        self.app.push_screen(comparison_screen)
 
     def action_quit(self) -> None:
         """Quit application"""

@@ -29,6 +29,10 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - Cache hit statistics displayed in the header during and after pricing loads
 - 💵 **Cost Calculator**: Automatic calculation of monthly and annual costs, plus cost per vCPU and GB RAM
 - 🔍 **Search & Filter**: Search by instance type name, filter by free tier eligibility
+- 🔀 **Instance Comparison**: Mark up to 2 instances and view side-by-side comparison
+  - Compare vCPU, memory, network, storage, pricing, and more
+  - Visual markers show which instances are marked for comparison
+  - Quick keyboard shortcuts for marking and viewing comparisons
 - 📊 **Detailed Information**: Comprehensive details for each instance type including:
   - Compute specifications (vCPU, cores, threads)
   - Memory information
@@ -325,6 +329,8 @@ instancepedia show t3.micro --region us-east-1 --include-pricing --format json |
 - `Space` - Expand/collapse category or family
 - `/` - Focus search input
 - `F` - Toggle free tier filter (show only free tier eligible instances)
+- `C` - Mark/unmark instance for comparison (max 2 instances)
+- `V` - View comparison of marked instances (requires 2 marked instances)
 - `Esc` - Back to region selector
 - `Q` - Quit
 
