@@ -18,6 +18,7 @@ from src.debug import DebugLog, DebugPane
 from textual.containers import Vertical
 from src.ui.region_selector import RegionSelector
 from src.ui.filter_modal import FilterModal, FilterCriteria
+from src.ui.sort_options import SortOption
 
 
 def extract_family_name(instance_type: str) -> str:
@@ -107,6 +108,7 @@ class InstanceList(Screen):
         ("q", "quit", "Quit"),
         ("escape", "back", "Back"),
         ("f", "show_filters", "Filters"),
+        ("s", "cycle_sort", "Sort"),
         ("/", "focus_search", "Search"),
         ("c", "mark_for_comparison", "Mark for Compare"),
         ("v", "view_comparison", "View Compare"),
@@ -121,6 +123,7 @@ class InstanceList(Screen):
         self.free_tier_filter = False  # Deprecated - kept for backwards compatibility
         self.search_term = ""
         self.filter_criteria = FilterCriteria()  # Advanced filter criteria
+        self.sort_option = SortOption.DEFAULT  # Current sort option
         self._pricing_loading = True  # Track if pricing is being loaded
         self._pricing_loaded_count = 0  # Track how many prices have been loaded
         self._instance_type_map: Dict[str, InstanceType] = {}  # Map instance type names to objects
@@ -153,7 +156,7 @@ class InstanceList(Screen):
                 with Horizontal(id="status-bar"):
                     yield Static("", id="status-text")
                 yield Static(
-                    "Enter: View | /: Search | F: Filters | C: Mark | V: Compare | E: Export | Esc: Back | Q: Quit",
+                    "Enter: View | /: Search | F: Filters | S: Sort | C: Mark | V: Compare | E: Export | Esc: Back | Q: Quit",
                     id="help-text"
                 )
             if DebugLog.is_enabled():
@@ -174,11 +177,11 @@ class InstanceList(Screen):
         for instance in instances:
             family = extract_family_name(instance.instance_type)
             families[family].append(instance)
-        
-        # Sort instances within each family
+
+        # Sort instances within each family using the current sort option
         for family in families:
-            families[family].sort(key=lambda x: x.instance_type)
-        
+            families[family] = self.sort_option.sort(families[family])
+
         return dict(families)
 
     def _format_instance_label(self, instance: InstanceType) -> str:
@@ -342,7 +345,7 @@ class InstanceList(Screen):
         self._update_status_bar()
 
     def _update_status_bar(self) -> None:
-        """Update the status bar with current filter and pricing information"""
+        """Update the status bar with current filter, sort, and pricing information"""
         free_tier_service = FreeTierService()
         total = len(self.all_instance_types)
         filtered = len(self.filtered_instance_types)
@@ -360,6 +363,10 @@ class InstanceList(Screen):
         elif self.free_tier_filter:
             # Backwards compatibility
             status += " | [Free Tier Filter Active]"
+
+        # Show sort order if not default
+        if self.sort_option != SortOption.DEFAULT:
+            status += f" | 📊 {self.sort_option.display_name}"
 
         # Add pricing loading status
         if self._pricing_loading:
@@ -578,6 +585,15 @@ class InstanceList(Screen):
         except Exception as e:
             DebugLog.log(f"Error navigating to detail: {e}")
             # Ignore errors if row doesn't exist
+
+    def action_cycle_sort(self) -> None:
+        """Cycle to the next sort option"""
+        self.sort_option = SortOption.get_next(self.sort_option)
+        self._populate_tree()
+        # Show sort order in status bar for 3 seconds
+        status = self.query_one("#status-text", Static)
+        status.update(f"📊 Sorted by: {self.sort_option.display_name}")
+        self.set_timer(3.0, lambda: self._update_status_bar())
 
     def action_show_filters(self) -> None:
         """Show the filter modal"""
