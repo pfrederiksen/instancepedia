@@ -92,6 +92,24 @@ The project has comprehensive documentation for both users and developers:
 - **TROUBLESHOOTING.md** - Common issues and solutions organized by category
 - **Use Cases** (in README.md) - Real-world scenarios with both TUI and CLI approaches
 
+## CLI Commands
+
+The CLI provides the following commands for users:
+
+- `list` - List instance types with filtering
+- `show` - Show detailed info for a specific instance type
+- `search` - Search for instance types by name
+- `pricing` - Get pricing information for an instance type
+- `regions` - List available AWS regions
+- `compare` - Compare two instance types side-by-side
+- `cost-estimate` - Calculate cost estimates with different usage patterns
+- `compare-regions` - Compare pricing across multiple regions
+- `compare-family` - Compare all instances within a family
+- `cache stats` - Show cache statistics
+- `cache clear` - Clear cache entries
+
+All commands are implemented in `src/cli/commands.py` with argument parsing in `src/cli/parser.py`.
+
 ## Common Commands
 
 ### Development Setup

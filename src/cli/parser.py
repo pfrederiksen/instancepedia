@@ -200,6 +200,95 @@ Examples:
     )
     compare_parser.set_defaults(func=commands.cmd_compare)
 
+    # Cost estimate command
+    cost_parser = subparsers.add_parser("cost-estimate", help="Calculate cost estimates for an instance type")
+    add_common_args(cost_parser)
+    cost_parser.add_argument(
+        "instance_type",
+        type=str,
+        help="Instance type (e.g., t3.micro)"
+    )
+    cost_parser.add_argument(
+        "--hours-per-month",
+        type=float,
+        default=730,
+        help="Hours per month (default: 730 for full month)"
+    )
+    cost_parser.add_argument(
+        "--months",
+        type=int,
+        default=12,
+        help="Number of months (default: 12)"
+    )
+    cost_parser.add_argument(
+        "--pricing-model",
+        type=str,
+        choices=["on-demand", "spot", "savings-1yr", "savings-3yr"],
+        default="on-demand",
+        help="Pricing model to use (default: on-demand)"
+    )
+    cost_parser.set_defaults(func=commands.cmd_cost_estimate)
+
+    # Compare regions command
+    compare_regions_parser = subparsers.add_parser("compare-regions", help="Compare pricing across regions")
+    compare_regions_parser.add_argument(
+        "instance_type",
+        type=str,
+        help="Instance type (e.g., t3.micro)"
+    )
+    compare_regions_parser.add_argument(
+        "--regions",
+        type=str,
+        required=True,
+        help="Comma-separated list of regions (e.g., us-east-1,us-west-2,eu-west-1)"
+    )
+    compare_regions_parser.add_argument(
+        "--format",
+        type=str,
+        choices=["table", "json", "csv"],
+        default="table",
+        help="Output format (default: table)"
+    )
+    compare_regions_parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file path (default: stdout)"
+    )
+    compare_regions_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress progress messages"
+    )
+    compare_regions_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug output"
+    )
+    compare_regions_parser.set_defaults(func=commands.cmd_compare_regions)
+
+    # Compare family command
+    compare_family_parser = subparsers.add_parser("compare-family", help="Compare all instances in a family")
+    add_common_args(compare_family_parser)
+    compare_family_parser.add_argument(
+        "family",
+        type=str,
+        help="Instance family (e.g., t3, m5, c6i)"
+    )
+    compare_family_parser.add_argument(
+        "--include-pricing",
+        action="store_true",
+        help="Include pricing information"
+    )
+    compare_family_parser.add_argument(
+        "--sort-by",
+        type=str,
+        choices=["vcpu", "memory", "price", "name"],
+        default="name",
+        help="Sort instances by (default: name)"
+    )
+    compare_family_parser.set_defaults(func=commands.cmd_compare_family)
+
     # Cache command
     cache_parser = subparsers.add_parser("cache", help="Manage pricing cache")
     cache_subparsers = cache_parser.add_subparsers(dest="cache_command", help="Cache commands")
@@ -258,15 +347,17 @@ def parse_args(args=None):
     """Parse command line arguments"""
     parser = create_parser()
     parsed_args = parser.parse_args(args)
-    
-    # Set default region if not provided (only for CLI commands)
-    if parsed_args.command and not parsed_args.region and hasattr(parsed_args, 'region'):
-        settings = Settings()
-        parsed_args.region = settings.aws_region
-    
-    # Set default profile if not provided (only for CLI commands)
-    if parsed_args.command and not parsed_args.profile and hasattr(parsed_args, 'profile'):
-        settings = Settings()
-        parsed_args.profile = settings.aws_profile
-    
+
+    # Set default region if not provided (only for CLI commands with region attribute)
+    if parsed_args.command and hasattr(parsed_args, 'region'):
+        if not parsed_args.region:
+            settings = Settings()
+            parsed_args.region = settings.aws_region
+
+    # Set default profile if not provided (only for CLI commands with profile attribute)
+    if parsed_args.command and hasattr(parsed_args, 'profile'):
+        if not parsed_args.profile:
+            settings = Settings()
+            parsed_args.profile = settings.aws_profile
+
     return parsed_args
