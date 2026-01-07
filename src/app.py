@@ -1,6 +1,7 @@
 """Main application class"""
 
 import asyncio
+import logging
 from textual.app import App, ComposeResult
 from textual.screen import Screen
 from textual.containers import Container, Vertical
@@ -19,6 +20,8 @@ from src.services.instance_service import InstanceService
 from src.services.pricing_service import PricingService
 from src.services.async_pricing_service import AsyncPricingService
 from src.config.settings import Settings
+
+logger = logging.getLogger("instancepedia")
 
 
 class InstancepediaApp(App):
@@ -197,8 +200,9 @@ class InstancepediaApp(App):
                         self.call_from_thread(
                             lambda: status_widget.update("Fetching instance types from AWS...")
                         )
-            except:
-                pass
+            except Exception as e:
+                # Screen may have transitioned or widget may not exist anymore
+                logger.debug(f"Failed to update status widget: {e}")
             
             aws_client = AWSClient(self.current_region, self.settings.aws_profile)
             instance_service = InstanceService(aws_client)
@@ -318,8 +322,9 @@ class InstancepediaApp(App):
             try:
                 if isinstance(self.screen, RegionSelector):
                     self.pop_screen()
-            except:
-                pass
+            except Exception as e:
+                # Screen may already be popped or app may be shutting down
+                logger.debug(f"Failed to pop region selector screen: {e}")
             self.push_screen(ErrorScreen("No instance types found for this region."))
     
     def _fetch_pricing_background(self, instance_list: InstanceList) -> None:

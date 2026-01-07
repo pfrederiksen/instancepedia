@@ -521,7 +521,11 @@ class InstanceList(Screen):
             from src.services.aws_client import AWSClient
             aws_client = AWSClient("us-east-1", self.app.settings.aws_profile)
             accessible_regions = aws_client.get_accessible_regions()
-        except:
+        except Exception as e:
+            # Fall back to all regions if we can't fetch accessible ones
+            import logging
+            logger = logging.getLogger("instancepedia")
+            logger.debug(f"Failed to fetch accessible regions: {e}")
             accessible_regions = None
         
         region_selector = RegionSelector(self.app.current_region or self.app.settings.aws_region, accessible_regions)
