@@ -35,6 +35,25 @@ Update `README.md` when you:
 
 **Examples**: New `cache clear` command, timeout configuration via env vars, new filters, new output formats.
 
+### When to Update CONTRIBUTING.md
+
+Update `CONTRIBUTING.md` when you:
+- Change development setup process
+- Add new coding standards or conventions
+- Modify testing requirements or patterns
+- Change the PR process or template
+- Add new project structure or components
+- Update contribution workflow
+
+### When to Update TROUBLESHOOTING.md
+
+Update `TROUBLESHOOTING.md` when you:
+- Discover new common issues and solutions
+- Find better solutions to existing problems
+- Add new platform-specific guidance
+- Update debug commands or procedures
+- Add new error messages and their resolutions
+
 ### How to Update Documentation
 
 1. **Make code changes first**
@@ -62,6 +81,16 @@ Update `README.md` when you:
 ## Project Overview
 
 Instancepedia is an EC2 Instance Type Browser with both TUI (Terminal User Interface) and CLI (Command-Line Interface) modes. It provides detailed EC2 instance information, pricing (on-demand and spot), and free tier eligibility indicators.
+
+### Documentation Structure
+
+The project has comprehensive documentation for both users and developers:
+
+- **README.md** - Main user-facing documentation with installation, usage, features, and examples
+- **CLAUDE.md** - Developer documentation with architecture, patterns, and implementation details
+- **CONTRIBUTING.md** - Contributor guidelines with setup, coding standards, and PR process
+- **TROUBLESHOOTING.md** - Common issues and solutions organized by category
+- **Use Cases** (in README.md) - Real-world scenarios with both TUI and CLI approaches
 
 ## Common Commands
 
