@@ -360,8 +360,9 @@ class InstancepediaApp(App):
                 DebugLog.log(f"Fetching on-demand prices for {total_to_fetch} instance types using async")
                 DebugLog.log("Note: Spot prices will be fetched on-demand when viewing instance details")
 
-                # Track progress
+                # Track progress and cache hits
                 completed_count = 0
+                cache_hits = 0
                 failed_instances = []
 
                 # Build a map of instance type names to objects for quick lookup
@@ -393,6 +394,11 @@ class InstancepediaApp(App):
                         # Schedule UI update on the main thread
                         self.call_later(do_update)
 
+                def on_cache_hit():
+                    """Called when a cache hit occurs"""
+                    nonlocal cache_hits
+                    cache_hits += 1
+
                 # Fetch all on-demand prices concurrently with rate limiting
                 instance_type_names = [inst.instance_type for inst in self.instance_types]
 
@@ -402,7 +408,8 @@ class InstancepediaApp(App):
                     self.current_region,
                     concurrency=10,  # Concurrent requests (async handles this efficiently)
                     progress_callback=on_progress,
-                    price_callback=on_price
+                    price_callback=on_price,
+                    cache_hit_callback=on_cache_hit
                 )
 
                 # Update UI after all prices fetched
@@ -436,10 +443,11 @@ class InstancepediaApp(App):
                 )
                 total_count = len(self.instance_types)
                 DebugLog.log(f"Pricing fetch completed: {pricing_loaded_count}/{total_count} instance types have pricing data")
+                DebugLog.log(f"Cache hits: {cache_hits}/{pricing_loaded_count} ({cache_hits/pricing_loaded_count*100:.1f}% from cache)" if pricing_loaded_count > 0 else "Cache hits: 0")
 
                 def do_mark_done():
                     try:
-                        instance_list.mark_pricing_loading(False)
+                        instance_list.mark_pricing_loading(False, cache_hits=cache_hits, total_prices=pricing_loaded_count)
                     except Exception as e:
                         DebugLog.log(f"Error marking pricing as done: {e}")
                 self.call_later(do_mark_done)
