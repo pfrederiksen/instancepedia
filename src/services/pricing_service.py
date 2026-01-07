@@ -4,35 +4,50 @@ from typing import Optional, Dict, List
 from botocore.exceptions import ClientError, BotoCoreError
 from decimal import Decimal
 import time
+import logging
 
 from src.services.aws_client import AWSClient
 from src.debug import DebugLog
+from src.cache import get_pricing_cache
+
+logger = logging.getLogger("instancepedia")
 
 
 class PricingService:
     """Service for fetching EC2 instance pricing"""
 
-    def __init__(self, aws_client: AWSClient):
+    def __init__(self, aws_client: AWSClient, use_cache: bool = True):
         """
         Initialize pricing service
-        
+
         Args:
             aws_client: AWS client wrapper
+            use_cache: Whether to use pricing cache (default: True)
         """
         self.aws_client = aws_client
+        self.use_cache = use_cache
+        self.cache = get_pricing_cache() if use_cache else None
 
     def get_on_demand_price(self, instance_type: str, region: str, max_retries: int = 3) -> Optional[float]:
         """
         Get on-demand price for an instance type in a region
-        
+
         Args:
             instance_type: EC2 instance type (e.g., 't3.micro')
             region: AWS region code (e.g., 'us-east-1')
             max_retries: Maximum number of retries for rate limiting
-            
+
         Returns:
             Price per hour in USD, or None if not available
         """
+        # Check cache first
+        if self.cache:
+            cached_price = self.cache.get(region, instance_type, 'on_demand')
+            if cached_price is not None:
+                logger.debug(f"Using cached on-demand price for {instance_type}: ${cached_price}/hr")
+                return cached_price
+
+        # Cache miss - fetch from AWS
         for attempt in range(max_retries + 1):
             try:
                 # Map region to pricing API region name
@@ -160,6 +175,9 @@ class PricingService:
                 # If we found a best price in the loop, use it directly
                 if best_price is not None and best_price > 0:
                     DebugLog.log(f"Found price for {instance_type}: ${best_price}/hr")
+                    # Cache the result
+                    if self.cache:
+                        self.cache.set(region, instance_type, 'on_demand', best_price)
                     return best_price
                 
                 # Otherwise, fall back to parsing the first result
@@ -253,6 +271,9 @@ class PricingService:
                             DebugLog.log(f"Found price for {instance_type}: ${price:.4f}/hr (converted from JPY)")
                         else:
                             DebugLog.log(f"Found price for {instance_type}: ${price}/hr")
+                        # Cache the result
+                        if self.cache:
+                            self.cache.set(region, instance_type, 'on_demand', price)
                         return price
                     except (ValueError, TypeError) as e:
                         DebugLog.log(f"Error parsing price '{usd_price}' for {instance_type}: {e}")
@@ -308,38 +329,67 @@ class PricingService:
                 return None
         
         # If we get here, all retries failed
+        # Cache the None result to avoid repeated failed lookups
+        if self.cache:
+            self.cache.set(region, instance_type, 'on_demand', None)
         return None
 
     def get_spot_price(self, instance_type: str, region: str) -> Optional[float]:
         """
         Get current spot price for an instance type in a region
-        
+
         Args:
             instance_type: EC2 instance type (e.g., 't3.micro')
             region: AWS region code (e.g., 'us-east-1')
-            
+
         Returns:
             Current spot price per hour in USD, or None if not available
         """
+        # Check cache first
+        if self.cache:
+            cached_price = self.cache.get(region, instance_type, 'spot')
+            if cached_price is not None:
+                logger.debug(f"Using cached spot price for {instance_type}: ${cached_price}/hr")
+                return cached_price
+
+        # Cache miss - fetch from AWS
         try:
             response = self.aws_client.ec2_client.describe_spot_price_history(
                 InstanceTypes=[instance_type],
                 ProductDescriptions=['Linux/UNIX'],
                 MaxResults=1
             )
-            
+
             if not response.get('SpotPriceHistory'):
+                # Cache the None result
+                if self.cache:
+                    self.cache.set(region, instance_type, 'spot', None)
                 return None
-            
+
             # Get the most recent spot price
             latest = response['SpotPriceHistory'][0]
-            return float(latest['SpotPrice'])
-            
+            spot_price = float(latest['SpotPrice'])
+
+            # Cache the result
+            if self.cache:
+                self.cache.set(region, instance_type, 'spot', spot_price)
+
+            return spot_price
+
         except ClientError:
+            # Cache the None result
+            if self.cache:
+                self.cache.set(region, instance_type, 'spot', None)
             return None
         except BotoCoreError:
+            # Cache the None result
+            if self.cache:
+                self.cache.set(region, instance_type, 'spot', None)
             return None
         except Exception:
+            # Cache the None result
+            if self.cache:
+                self.cache.set(region, instance_type, 'spot', None)
             return None
     
     def get_spot_prices_batch(self, instance_types: List[str], region: str, max_retries: int = 3) -> Dict[str, Optional[float]]:

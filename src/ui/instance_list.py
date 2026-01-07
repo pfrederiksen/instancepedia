@@ -17,6 +17,7 @@ from src.services.free_tier_service import FreeTierService
 from src.debug import DebugLog, DebugPane
 from textual.containers import Vertical
 from src.ui.region_selector import RegionSelector
+from src.cache import get_pricing_cache
 
 
 def extract_family_name(instance_type: str) -> str:
@@ -123,6 +124,7 @@ class InstanceList(Screen):
         self._expanded_categories: set = set()  # Track expanded categories to preserve state
         self._expanded_families: set = set()  # Track expanded families to preserve state
         self._last_pricing_update_count = 0  # Track pricing updates to throttle tree rebuilds
+        self._cache = get_pricing_cache()  # Get cache instance for statistics
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -620,6 +622,26 @@ class InstanceList(Screen):
             # If update fails, that's okay - pricing will show on next rebuild
             pass
     
+    def _get_cache_stats(self) -> tuple[int, int]:
+        """
+        Get cache statistics for current instances
+
+        Returns:
+            Tuple of (cache_hits, total_prices)
+        """
+        cache_hits = 0
+        total_prices = 0
+
+        for inst in self.all_instance_types:
+            if inst.pricing and inst.pricing.on_demand_price is not None:
+                total_prices += 1
+                # Check if this price was in cache (cache would have entry)
+                cached_price = self._cache.get(self._region, inst.instance_type, 'on_demand')
+                if cached_price is not None:
+                    cache_hits += 1
+
+        return cache_hits, total_prices
+
     def _update_pricing_header(self) -> None:
         """Update the pricing status header"""
         try:
@@ -631,10 +653,23 @@ class InstanceList(Screen):
                     if inst.pricing and inst.pricing.on_demand_price is not None
                 )
                 total = len(self.all_instance_types)
-                header.update(f"💰 ⏳ Loading on-demand prices... ({pricing_loaded}/{total} loaded)")
+
+                # Show cache stats during loading
+                cache_hits, _ = self._get_cache_stats()
+                if cache_hits > 0:
+                    header.update(f"💰 ⏳ Loading prices... ({pricing_loaded}/{total} loaded, {cache_hits} from cache)")
+                else:
+                    header.update(f"💰 ⏳ Loading on-demand prices... ({pricing_loaded}/{total} loaded)")
                 header.styles.color = "yellow"
             else:
-                # Hide the header once loading is complete
-                header.update("")
+                # Show final cache statistics
+                cache_hits, total_prices = self._get_cache_stats()
+                if total_prices > 0 and cache_hits > 0:
+                    cache_pct = (cache_hits / total_prices * 100) if total_prices > 0 else 0
+                    header.update(f"💰 Pricing loaded: {cache_hits}/{total_prices} from cache ({cache_pct:.0f}%)")
+                    header.styles.color = "green"
+                else:
+                    # Hide the header if no cache hits
+                    header.update("")
         except Exception:
             pass  # Header might not exist yet
