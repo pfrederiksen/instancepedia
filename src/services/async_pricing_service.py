@@ -66,7 +66,8 @@ class AsyncPricingService:
         self,
         instance_type: str,
         region: str,
-        max_retries: int = 3
+        max_retries: int = 3,
+        cache_hit_callback=None
     ) -> Optional[float]:
         """
         Get on-demand price for an instance type in a region
@@ -75,6 +76,7 @@ class AsyncPricingService:
             instance_type: EC2 instance type (e.g., 't3.micro')
             region: AWS region code (e.g., 'us-east-1')
             max_retries: Maximum number of retries for rate limiting
+            cache_hit_callback: Optional callback() called when cache hit occurs
 
         Returns:
             Price per hour in USD, or None if not available
@@ -84,6 +86,9 @@ class AsyncPricingService:
             cached_price = self.cache.get(region, instance_type, 'on_demand')
             if cached_price is not None:
                 logger.debug(f"Using cached on-demand price for {instance_type}: ${cached_price}/hr")
+                # Notify callback that we had a cache hit
+                if cache_hit_callback:
+                    cache_hit_callback()
                 return cached_price
 
         pricing_region = REGION_MAP.get(region)
@@ -242,7 +247,8 @@ class AsyncPricingService:
         region: str,
         concurrency: int = 10,
         progress_callback=None,
-        price_callback=None
+        price_callback=None,
+        cache_hit_callback=None
     ) -> Dict[str, Optional[float]]:
         """
         Get on-demand prices for multiple instance types concurrently
@@ -253,6 +259,7 @@ class AsyncPricingService:
             concurrency: Maximum concurrent requests (default 10)
             progress_callback: Optional callback(completed, total) for progress updates
             price_callback: Optional callback(instance_type, price) called when each price is fetched
+            cache_hit_callback: Optional callback() called when a cache hit occurs
 
         Returns:
             Dictionary mapping instance_type to price (or None)
@@ -267,7 +274,7 @@ class AsyncPricingService:
             async with semaphore:
                 # Small delay to avoid rate limiting
                 await asyncio.sleep(0.05)
-                price = await self.get_on_demand_price(inst_type, region)
+                price = await self.get_on_demand_price(inst_type, region, cache_hit_callback=cache_hit_callback)
                 results[inst_type] = price
                 completed += 1
                 # Call price callback first so instance is updated before progress callback

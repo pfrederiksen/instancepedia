@@ -17,7 +17,6 @@ from src.services.free_tier_service import FreeTierService
 from src.debug import DebugLog, DebugPane
 from textual.containers import Vertical
 from src.ui.region_selector import RegionSelector
-from src.cache import get_pricing_cache
 
 
 def extract_family_name(instance_type: str) -> str:
@@ -124,7 +123,8 @@ class InstanceList(Screen):
         self._expanded_categories: set = set()  # Track expanded categories to preserve state
         self._expanded_families: set = set()  # Track expanded families to preserve state
         self._last_pricing_update_count = 0  # Track pricing updates to throttle tree rebuilds
-        self._cache = get_pricing_cache()  # Get cache instance for statistics
+        self._cache_hits = 0  # Track actual cache hits during pricing fetch
+        self._total_prices = 0  # Track total prices loaded
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -550,9 +550,19 @@ class InstanceList(Screen):
         """Quit application"""
         self.app.exit()
     
-    def mark_pricing_loading(self, loading: bool) -> None:
-        """Mark pricing loading state"""
+    def mark_pricing_loading(self, loading: bool, cache_hits: int = 0, total_prices: int = 0) -> None:
+        """Mark pricing loading state and update cache statistics
+
+        Args:
+            loading: Whether pricing is currently loading
+            cache_hits: Number of prices loaded from cache (only used when loading=False)
+            total_prices: Total number of prices loaded (only used when loading=False)
+        """
         self._pricing_loading = loading
+        if not loading:
+            # Store cache statistics when pricing is complete
+            self._cache_hits = cache_hits
+            self._total_prices = total_prices
         self._update_pricing_header()
         # Only rebuild tree if it's the first time (not during pricing updates)
         if not hasattr(self, '_tree_initialized'):
@@ -626,26 +636,6 @@ class InstanceList(Screen):
             # If update fails, that's okay - pricing will show on next rebuild
             pass
     
-    def _get_cache_stats(self) -> tuple[int, int]:
-        """
-        Get cache statistics for current instances
-
-        Returns:
-            Tuple of (cache_hits, total_prices)
-        """
-        cache_hits = 0
-        total_prices = 0
-
-        for inst in self.all_instance_types:
-            if inst.pricing and inst.pricing.on_demand_price is not None:
-                total_prices += 1
-                # Check if this price was in cache (cache would have entry)
-                cached_price = self._cache.get(self._region, inst.instance_type, 'on_demand')
-                if cached_price is not None:
-                    cache_hits += 1
-
-        return cache_hits, total_prices
-
     def _update_pricing_header(self) -> None:
         """Update the pricing status header"""
         try:
@@ -658,19 +648,14 @@ class InstanceList(Screen):
                 )
                 total = len(self.all_instance_types)
 
-                # Show cache stats during loading
-                cache_hits, _ = self._get_cache_stats()
-                if cache_hits > 0:
-                    header.update(f"💰 ⏳ Loading prices... ({pricing_loaded}/{total} loaded, {cache_hits} from cache)")
-                else:
-                    header.update(f"💰 ⏳ Loading on-demand prices... ({pricing_loaded}/{total} loaded)")
+                # Show loading status
+                header.update(f"💰 ⏳ Loading on-demand prices... ({pricing_loaded}/{total} loaded)")
                 header.styles.color = "yellow"
             else:
-                # Show final cache statistics
-                cache_hits, total_prices = self._get_cache_stats()
-                if total_prices > 0 and cache_hits > 0:
-                    cache_pct = (cache_hits / total_prices * 100) if total_prices > 0 else 0
-                    header.update(f"💰 Pricing loaded: {cache_hits}/{total_prices} from cache ({cache_pct:.0f}%)")
+                # Show final cache statistics (from actual pricing fetch)
+                if self._total_prices > 0 and self._cache_hits > 0:
+                    cache_pct = (self._cache_hits / self._total_prices * 100) if self._total_prices > 0 else 0
+                    header.update(f"💰 Pricing loaded: {self._cache_hits}/{self._total_prices} from cache ({cache_pct:.0f}%)")
                     header.styles.color = "green"
                 else:
                     # Hide the header if no cache hits
