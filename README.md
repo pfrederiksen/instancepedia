@@ -34,6 +34,12 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - Filter modal with easy-to-use interface (press 'F' to open)
   - Active filter indicator in status bar
   - Filters are preserved across navigation
+- 📊 **Flexible Sorting**: Sort instances by multiple criteria
+  - Press 'S' to cycle through sort options
+  - Available sort options: Instance Type (A-Z), Price (Low-High), Price (High-Low), vCPU (Low-High), vCPU (High-Low), Memory (Low-High), Memory (High-Low)
+  - Current sort order displayed in status bar
+  - Sorting works within each instance family
+  - Sort order is preserved during navigation and filtering
 - 🔀 **Instance Comparison**: Mark up to 2 instances and view side-by-side comparison
   - Compare vCPU, memory, network, storage, pricing, and more
   - Visual markers show which instances are marked for comparison
@@ -339,6 +345,7 @@ instancepedia show t3.micro --region us-east-1 --include-pricing --format json |
 - `Space` - Expand/collapse category or family
 - `/` - Focus search input
 - `F` - Open advanced filter modal (filter by vCPU, memory, GPU, architecture, etc.)
+- `S` - Cycle through sort options (Instance Type, Price, vCPU, Memory - ascending/descending)
 - `C` - Mark/unmark instance for comparison (max 2 instances)
 - `V` - View comparison of marked instances (requires 2 marked instances)
 - `E` - Export current filtered list to JSON and CSV files
