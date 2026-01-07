@@ -467,6 +467,289 @@ Alternatively, you can use the AWS Console:
 3. Name it `InstancepediaReadOnly` and create it
 4. Attach it to your user or role as needed
 
+## Use Cases
+
+Here are real-world scenarios demonstrating how to use Instancepedia effectively:
+
+### 1. Finding the Right Instance for Your Workload
+
+**Scenario**: You need a cost-effective instance with at least 4 vCPUs and 8GB RAM for a web application.
+
+**TUI Approach**:
+```bash
+instancepedia --tui
+# 1. Press 'F' to open filters
+# 2. Set Min vCPU: 4
+# 3. Set Min Memory: 8
+# 4. Press Tab to "Apply Filters"
+# 5. Press 'S' to sort by "Price (Low-High)"
+# 6. Select cheapest option, press Enter to view details
+```
+
+**CLI Approach**:
+```bash
+# List all instances, filter with jq, sort by price
+instancepedia list --region us-east-1 --include-pricing --format json | \
+  jq '[.instances[] | select(.vcpu_info.default_vcpus >= 4 and .memory_info.size_in_gb >= 8)] |
+      sort_by(.pricing.on_demand_price) | .[0:5]'
+```
+
+### 2. Comparing Cost vs Performance
+
+**Scenario**: You're deciding between t3.medium, t3.large, and m5.large for your application.
+
+**TUI Approach**:
+```bash
+instancepedia --tui
+# 1. Navigate to t3.medium, press 'C' to mark
+# 2. Navigate to t3.large, press 'C' to mark
+# 3. Press 'V' to view comparison
+# 4. Review side-by-side specs and pricing
+# 5. Repeat with different pairs as needed
+```
+
+**CLI Approach**:
+```bash
+# Compare instances with detailed breakdown
+instancepedia compare t3.medium t3.large --region us-east-1 --include-pricing
+
+# Get JSON for custom analysis
+instancepedia compare m5.large t3.large --region us-east-1 --format json | \
+  jq '.comparison | {
+    vcpu_diff: (.instance1.vcpu_info.default_vcpus - .instance2.vcpu_info.default_vcpus),
+    memory_diff: (.instance1.memory_info.size_in_gb - .instance2.memory_info.size_in_gb),
+    price_diff: (.instance1.pricing.on_demand_price - .instance2.pricing.on_demand_price)
+  }'
+```
+
+### 3. Finding Free Tier Eligible Options
+
+**Scenario**: You're setting up a new AWS account and want to use free tier instances for development.
+
+**TUI Approach**:
+```bash
+instancepedia --tui
+# 1. Press 'F' to open filters
+# 2. Set "Free Tier Eligible" to "Yes"
+# 3. Apply filters
+# Look for instances with 🆓 indicator
+# Press Enter on t2.micro to see free tier details
+```
+
+**CLI Approach**:
+```bash
+# List all free tier instances
+instancepedia list --region us-east-1 --free-tier-only --format table
+
+# Export to CSV for documentation
+instancepedia list --region us-east-1 --free-tier-only --format csv --output free-tier.csv
+
+# Get just instance type names for scripts
+instancepedia list --region us-east-1 --free-tier-only --format json | \
+  jq -r '.instances[].instance_type'
+```
+
+### 4. Spot Instance Price Analysis
+
+**Scenario**: You want to find instances where spot pricing offers significant savings.
+
+**TUI Approach**:
+```bash
+instancepedia --tui
+# 1. Select any region
+# 2. Press 'S' to sort by "Price (Low-High)"
+# 3. Navigate through instances and press Enter to view details
+# 4. In detail view, compare on-demand vs spot prices and savings percentage
+# 5. Press 'R' if any pricing failed to load
+```
+
+**CLI Approach**:
+```bash
+# Find instances with best spot savings
+instancepedia list --region us-east-1 --include-pricing --format json | \
+  jq '[.instances[] | select(.pricing.spot_price != null) | {
+    instance_type,
+    on_demand: .pricing.on_demand_price,
+    spot: .pricing.spot_price,
+    savings_pct: ((.pricing.on_demand_price - .pricing.spot_price) / .pricing.on_demand_price * 100)
+  }] | sort_by(-.savings_pct) | .[0:10]'
+```
+
+### 5. Bulk Export for Spreadsheet Analysis
+
+**Scenario**: You need to export all instance data to Excel for team review and cost planning.
+
+**TUI Approach**:
+```bash
+instancepedia --tui
+# 1. Select your primary region
+# 2. Wait for pricing to load
+# 3. Press 'E' to export
+# Files saved to ~/.instancepedia/exports/ with timestamp
+# Open CSV files in Excel, Google Sheets, or Numbers
+```
+
+**CLI Approach**:
+```bash
+# Export all instances with pricing to CSV
+instancepedia list --region us-east-1 --include-pricing --format csv --output instances-us-east-1.csv
+
+# Export multiple regions
+for region in us-east-1 us-west-2 eu-west-1; do
+  instancepedia list --region $region --include-pricing --format csv \
+    --output "instances-$region.csv"
+done
+
+# Export specific families for comparison
+instancepedia list --region us-east-1 --family m5 --include-pricing --format csv --output m5-family.csv
+instancepedia list --region us-east-1 --family m6i --include-pricing --format csv --output m6i-family.csv
+```
+
+### 6. GPU Instance Selection
+
+**Scenario**: You need to find GPU-enabled instances for machine learning workloads.
+
+**TUI Approach**:
+```bash
+instancepedia --tui
+# 1. Press 'F' to open filters
+# 2. Set "Has GPU" to "Yes"
+# 3. Apply filters
+# 4. Press 'S' to sort by "Price (Low-High)"
+# 5. Navigate to instances and press Enter to see GPU details
+# GPU details show: type, count, memory per GPU, total GPU memory
+```
+
+**CLI Approach**:
+```bash
+# List all GPU instances
+instancepedia list --region us-east-1 --include-pricing --format json | \
+  jq '[.instances[] | select(.gpu_info != null)] |
+      map({instance_type, gpu_count: .gpu_info.total_gpu_count,
+           gpu_memory: .gpu_info.total_gpu_memory_in_gb,
+           price: .pricing.on_demand_price}) |
+      sort_by(.price)'
+```
+
+### 7. ARM vs x86 Architecture Comparison
+
+**Scenario**: You're evaluating Graviton (ARM) instances for cost savings vs x86 instances.
+
+**TUI Approach**:
+```bash
+# Compare x86 instance
+instancepedia --tui
+# 1. Search for "m6i.large" (x86)
+# 2. Press 'C' to mark
+# 3. Search for "m6g.large" (ARM/Graviton)
+# 4. Press 'C' to mark
+# 5. Press 'V' to view comparison
+# Compare architecture field and pricing
+
+# Or filter by architecture
+# 1. Press 'F' to open filters
+# 2. Set Architecture to "arm64"
+# 3. Apply and browse Graviton instances
+```
+
+**CLI Approach**:
+```bash
+# Compare same-sized instances across architectures
+instancepedia compare m6i.large m6g.large --region us-east-1 --include-pricing
+
+# List all ARM instances
+instancepedia list --region us-east-1 --include-pricing --format json | \
+  jq '[.instances[] | select(.processor_info.supported_architectures | contains(["arm64"]))]'
+```
+
+### 8. Multi-Region Cost Comparison
+
+**Scenario**: You want to find the cheapest region to deploy your t3.large instances.
+
+**CLI Approach**:
+```bash
+# Check pricing across multiple regions
+for region in us-east-1 us-west-2 eu-west-1 ap-southeast-1; do
+  echo "=== $region ==="
+  instancepedia pricing t3.large --region $region
+  echo ""
+done
+
+# Or get JSON for programmatic comparison
+for region in us-east-1 us-west-2 eu-west-1; do
+  instancepedia pricing t3.large --region $region --format json | \
+    jq -r '{region: "'$region'", price: .pricing.on_demand_price}'
+done
+```
+
+### 9. Building Infrastructure as Code Templates
+
+**Scenario**: You need instance specifications for Terraform/CloudFormation templates.
+
+**CLI Approach**:
+```bash
+# Get detailed instance specs as JSON
+instancepedia show t3.medium --region us-east-1 --include-pricing --format json > t3-medium-specs.json
+
+# Extract specific fields for Terraform variables
+instancepedia show t3.medium --region us-east-1 --format json | \
+  jq '{
+    instance_type: .instance.instance_type,
+    vcpu: .instance.vcpu_info.default_vcpus,
+    memory_gb: .instance.memory_info.size_in_gb,
+    network_performance: .instance.network_info.network_performance,
+    ebs_optimized: .instance.ebs_info.ebs_optimized_support
+  }'
+
+# Generate instance type list for allowed values
+instancepedia list --region us-east-1 --family t3 --format json | \
+  jq -r '.instances[].instance_type' | \
+  jq -R -s -c 'split("\n")[:-1]'  # Output as JSON array
+```
+
+### 10. Monitoring Pricing Changes
+
+**Scenario**: You want to track spot price changes over time or detect pricing updates.
+
+**CLI Approach**:
+```bash
+# Clear cache to force fresh pricing lookup
+instancepedia cache clear --force
+
+# Get current pricing
+instancepedia pricing t3.large --region us-east-1 --format json > pricing-$(date +%Y%m%d).json
+
+# Compare with previous day (manual diff)
+diff pricing-20250106.json pricing-20250107.json
+
+# Set up a cron job to track daily pricing
+# crontab entry:
+# 0 9 * * * /usr/local/bin/instancepedia pricing t3.large --region us-east-1 --format json >> /var/log/pricing-history.jsonl
+```
+
+### Tips for Effective Usage
+
+**TUI Mode Tips**:
+- Use `/` to quickly search for instance types instead of navigating manually
+- Press `F` + `R` to quickly reset all filters and start fresh
+- Export (`E`) before applying new filters to save current results
+- Use comparison (`C` + `V`) to validate migration decisions
+- Check debug mode (`--debug`) if pricing seems stuck loading
+
+**CLI Mode Tips**:
+- Pipe JSON output to `jq` for powerful filtering and transformation
+- Use `--quiet` flag in scripts to suppress progress messages
+- Combine with `watch` command to monitor pricing: `watch -n 300 instancepedia pricing t3.large`
+- Export to CSV for non-technical stakeholders
+- Use `--output` to save results for later analysis
+
+**Performance Tips**:
+- First run downloads all data - subsequent runs use cache (4-hour TTL)
+- Use `instancepedia cache stats` to check cache status
+- Clear cache (`instancepedia cache clear`) if prices seem stale
+- In TUI, press `R` to retry failed pricing loads
+- Pricing loads in background - you can browse while it loads
+
 ## Performance
 
 Instancepedia is optimized for performance in both TUI and CLI modes:
@@ -671,12 +954,28 @@ instancepedia/
 │   └── release.sh                # Release automation script
 ├── screenshots/                  # Application screenshots
 ├── .gitignore                   # Git ignore rules
+├── CONTRIBUTING.md              # Contributing guidelines
 ├── LICENSE                      # MIT License
 ├── MANIFEST.in                  # Package manifest for PyPI
 ├── pyproject.toml               # Project configuration and metadata
 ├── requirements.txt             # Python dependencies
-└── README.md                    # This file
+├── README.md                    # This file
+└── TROUBLESHOOTING.md           # Troubleshooting guide
 ```
+
+## Documentation
+
+- **[README.md](README.md)** - Main documentation (you're reading it!)
+- **[Use Cases](#use-cases)** - Real-world usage examples and workflows
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Guidelines for contributors
+- **[CLAUDE.md](CLAUDE.md)** - Developer documentation and architecture
+
+**Getting Help:**
+- Having issues? Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- Want to contribute? Read [CONTRIBUTING.md](CONTRIBUTING.md)
+- Need examples? See [Use Cases](#use-cases) section above
+- Found a bug? [Open an issue](https://github.com/pfrederiksen/instancepedia/issues)
 
 ## License
 
