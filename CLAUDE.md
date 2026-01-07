@@ -109,6 +109,7 @@ The CLI provides the following commands for users:
 - `presets apply` - Apply a filter preset to list instances
 - `cache stats` - Show cache statistics
 - `cache clear` - Clear cache entries
+- `spot-history` - Show historical spot price trends with statistics and volatility analysis
 
 ### Filter Presets
 
@@ -131,6 +132,42 @@ The `EbsRecommendationService` provides volume type recommendations based on ins
 - Recommends appropriate volume types (gp3, io2, st1, etc.)
 - Shows IOPS ranges, throughput specs, and use cases
 - Integrated into both TUI instance detail and CLI `show` command
+
+### Spot Price History
+
+The spot price history feature (`spot-history` command) provides historical analysis of spot pricing trends:
+
+**Implementation** (`src/services/pricing_service.py`):
+- `SpotPriceHistory` dataclass stores price statistics and metadata
+- `get_spot_price_history()` method fetches and analyzes historical data
+- Uses AWS EC2 `describe-spot-price-history` API (free, no CloudWatch charges)
+- Filters by product description: `Linux/UNIX` (most common)
+
+**Statistical Analysis**:
+- Current, minimum, maximum, average, median prices
+- Standard deviation for volatility measurement
+- Volatility percentage: `(std_dev / avg) * 100`
+- Stability ratings based on volatility thresholds:
+  - Very Stable: < 5%
+  - Stable: 5-15%
+  - Moderate: 15-30%
+  - Volatile: 30-50%
+  - Highly Volatile: > 50%
+
+**Visualization**:
+- Text-based bar chart using Unicode characters (█)
+- Shows last 10 data points for trend visualization
+- Bar lengths proportional to price values
+- Includes price labels for clarity
+
+**CLI Integration** (`src/cli/commands.py`):
+- `cmd_spot_history()` handler with table and JSON output formats
+- `--days` argument for customizable time periods (default: 30 days)
+- Graceful error handling for regions/instances without spot pricing
+
+**TUI Integration** (`src/ui/instance_detail.py`):
+- Reference message in instance detail pricing section
+- Directs users to CLI command for full analysis
 
 All commands are implemented in `src/cli/commands.py` with argument parsing in `src/cli/parser.py`.
 
