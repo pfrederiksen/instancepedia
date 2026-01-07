@@ -185,13 +185,17 @@ class InstanceDetail(Screen):
         except Exception as e:
             DebugLog.log(f"ERROR rendering details: {e}")
             import traceback
+            import logging
             DebugLog.log(f"Traceback: {traceback.format_exc()}")
+            logger = logging.getLogger("instancepedia")
+            logger.error(f"Failed to render instance details: {e}", exc_info=True)
             # Try to show error message
             try:
                 detail_text = self.query_one("#detail-text", Static)
                 detail_text.update(f"Error loading details: {str(e)}")
-            except:
-                pass
+            except Exception as inner_e:
+                # Widget may not exist yet or screen may be transitioning
+                logger.debug(f"Failed to update error message in detail text widget: {inner_e}")
 
     def _fetch_spot_price_if_needed(self) -> None:
         """Fetch spot price for this instance if not already loaded"""
