@@ -1,11 +1,15 @@
 """EC2 instance type service"""
 
+import logging
 from typing import List, Optional
 from botocore.exceptions import ClientError, BotoCoreError
 
 from src.models.instance_type import InstanceType, PricingInfo
 from src.services.aws_client import AWSClient
 from src.services.pricing_service import PricingService
+from src.exceptions import AWSRegionError, InstanceTypeError
+
+logger = logging.getLogger("instancepedia")
 
 
 class InstanceService:
@@ -76,11 +80,34 @@ class InstanceService:
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_msg = e.response.get("Error", {}).get("Message", str(e))
-            raise Exception(f"AWS API error ({error_code}): {error_msg}")
+
+            # Check for region-specific errors
+            if error_code in ("AuthFailure", "UnauthorizedOperation"):
+                logger.error(f"Authorization error in region {self.aws_client.region}: {error_code}")
+                raise AWSRegionError(
+                    f"Not authorized to access EC2 in region '{self.aws_client.region}'.\n"
+                    f"This region may not be enabled for your account or you may lack permissions.\n"
+                    f"Use 'instancepedia regions' to see available regions."
+                ) from e
+            elif error_code in ("InvalidRegionName", "InvalidParameterValue"):
+                logger.error(f"Invalid region '{self.aws_client.region}': {error_code}")
+                raise AWSRegionError(
+                    f"Region '{self.aws_client.region}' is not valid.\n"
+                    f"Use 'instancepedia regions' to see available regions."
+                ) from e
+
+            # Generic error
+            logger.error(f"AWS API error in region {self.aws_client.region}: {error_code}")
+            raise InstanceTypeError(f"AWS API error ({error_code}): {error_msg}") from e
         except BotoCoreError as e:
-            raise Exception(f"AWS connection error: {str(e)}")
+            logger.error(f"AWS connection error in region {self.aws_client.region}: {e}")
+            raise InstanceTypeError(f"AWS connection error: {str(e)}") from e
+        except (AWSRegionError, InstanceTypeError):
+            # Re-raise our custom exceptions as-is
+            raise
         except Exception as e:
-            raise Exception(f"Failed to fetch instance types: {str(e)}")
+            logger.error(f"Failed to fetch instance types in region {self.aws_client.region}: {e}")
+            raise InstanceTypeError(f"Failed to fetch instance types: {str(e)}") from e
     
     def update_instance_pricing(self, instance_type: InstanceType) -> None:
         """
