@@ -10,6 +10,7 @@ from src.models.instance_type import InstanceType
 from src.services.free_tier_service import FreeTierService
 from src.services.async_aws_client import AsyncAWSClient
 from src.services.async_pricing_service import AsyncPricingService
+from src.services.ebs_recommendation_service import EbsRecommendationService
 from src.debug import DebugLog, DebugPane
 
 
@@ -26,6 +27,7 @@ class InstanceDetail(Screen):
         DebugLog.log(f"InstanceDetail.__init__() called for: {instance_type.instance_type}")
         self.instance_type = instance_type
         self.free_tier_service = FreeTierService()
+        self.ebs_recommendation_service = EbsRecommendationService()
 
     def compose(self) -> ComposeResult:
         DebugLog.log("InstanceDetail.compose() called")
@@ -140,6 +142,21 @@ class InstanceDetail(Screen):
             else:
                 lines.append("  • Instance Storage:  Not Available")
             lines.append("")
+
+            # EBS Recommendations
+            if inst.ebs_info.ebs_optimized_support in ["default", "supported"]:
+                lines.append("Recommended EBS Volume Types")
+                recommendations = self.ebs_recommendation_service.get_recommendations(
+                    inst.ebs_info.ebs_optimized_support,
+                    inst.ebs_info.ebs_optimized_info
+                )
+                for i, rec in enumerate(recommendations[:3], 1):
+                    lines.append(f"  {i}. {rec.volume_type.upper()} - {rec.description}")
+                    if rec.iops_range:
+                        lines.append(f"     IOPS: {rec.iops_range}")
+                    if rec.throughput_range:
+                        lines.append(f"     Throughput: {rec.throughput_range}")
+                lines.append("")
 
             # Architecture & Virtualization
             lines.append("Architecture & Virtualization")

@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from tabulate import tabulate
 
 from src.models.instance_type import InstanceType
+from src.services.ebs_recommendation_service import EbsRecommendationService
 
 
 class OutputFormatter:
@@ -36,7 +37,10 @@ class OutputFormatter:
 
 class TableFormatter(OutputFormatter):
     """Table formatter for human-readable output"""
-    
+
+    def __init__(self):
+        self.ebs_recommendation_service = EbsRecommendationService()
+
     def format_instance_list(self, instances: List[InstanceType], region: str) -> str:
         """Format instance list as a table"""
         if not instances:
@@ -129,13 +133,34 @@ class TableFormatter(OutputFormatter):
         # Storage
         lines.append("Storage:")
         lines.append(f"  EBS Optimized: {instance.ebs_info.ebs_optimized_support}")
+        if instance.ebs_info.ebs_optimized_info:
+            max_throughput = instance.ebs_info.ebs_optimized_info.get("MaximumThroughputMBps")
+            max_bandwidth = instance.ebs_info.ebs_optimized_info.get("MaximumBandwidthMbps")
+            if max_bandwidth:
+                lines.append(f"  EBS Bandwidth: Up to {max_bandwidth} Mbps")
+            if max_throughput:
+                lines.append(f"  EBS Throughput: Up to {max_throughput} MB/s")
         if instance.instance_storage_info:
             if instance.instance_storage_info.total_size_in_gb:
                 lines.append(f"  Instance Store: {instance.instance_storage_info.total_size_in_gb} GB")
             if instance.instance_storage_info.nvme_support:
                 lines.append(f"  NVMe Support: {instance.instance_storage_info.nvme_support}")
         lines.append("")
-        
+
+        # EBS Recommendations
+        if instance.ebs_info.ebs_optimized_support in ["default", "supported"]:
+            lines.append("Recommended EBS Volume Types:")
+            recommendations = self.ebs_recommendation_service.get_recommendations(
+                instance.ebs_info.ebs_optimized_support,
+                instance.ebs_info.ebs_optimized_info
+            )
+            for i, rec in enumerate(recommendations[:3], 1):
+                lines.append(f"  {i}. {rec.volume_type.upper()} - {rec.description}")
+                lines.append(f"     IOPS: {rec.iops_range}")
+                lines.append(f"     Throughput: {rec.throughput_range}")
+                lines.append(f"     Use Cases: {', '.join(rec.use_cases[:2])}")
+            lines.append("")
+
         # Features
         lines.append("Features:")
         lines.append(f"  Generation: {instance.generation_label}")
