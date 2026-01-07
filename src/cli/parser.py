@@ -199,7 +199,58 @@ Examples:
         help="Include pricing information"
     )
     compare_parser.set_defaults(func=commands.cmd_compare)
-    
+
+    # Cache command
+    cache_parser = subparsers.add_parser("cache", help="Manage pricing cache")
+    cache_subparsers = cache_parser.add_subparsers(dest="cache_command", help="Cache commands")
+
+    # Cache stats subcommand
+    cache_stats_parser = cache_subparsers.add_parser("stats", help="Show cache statistics")
+    cache_stats_parser.add_argument(
+        "--format",
+        type=str,
+        choices=["table", "json"],
+        default="table",
+        help="Output format (default: table)"
+    )
+    cache_stats_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug output"
+    )
+    cache_stats_parser.set_defaults(func=commands.cmd_cache_stats)
+
+    # Cache clear subcommand
+    cache_clear_parser = cache_subparsers.add_parser("clear", help="Clear cache entries")
+    cache_clear_parser.add_argument(
+        "--region",
+        type=str,
+        default=None,
+        help="Clear only entries for this region"
+    )
+    cache_clear_parser.add_argument(
+        "--instance-type",
+        type=str,
+        default=None,
+        help="Clear only entries for this instance type"
+    )
+    cache_clear_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt"
+    )
+    cache_clear_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress output messages"
+    )
+    cache_clear_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug output"
+    )
+    cache_clear_parser.set_defaults(func=commands.cmd_cache_clear)
+
     return parser
 
 

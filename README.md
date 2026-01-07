@@ -25,6 +25,8 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - Batch fetching for optimal performance
   - Automatic retry with exponential backoff on rate limits
   - Pricing displayed directly in the instance list: instance type, vCPU, memory, and price per hour
+  - **Smart caching** with 4-hour TTL to reduce API calls and improve performance
+  - Cache hit statistics displayed in the header during and after pricing loads
 - 💵 **Cost Calculator**: Automatic calculation of monthly and annual costs, plus cost per vCPU and GB RAM
 - 🔍 **Search & Filter**: Search by instance type name, filter by free tier eligibility
 - 📊 **Detailed Information**: Comprehensive details for each instance type including:
@@ -47,6 +49,7 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 - 📁 **File Output**: Save results to files for further processing
 - ⚡ **Fast**: No UI overhead, optimized for batch operations
 - 🔇 **Quiet Mode**: Suppress progress messages for clean script output
+- 💾 **Cache Management**: View cache statistics and clear cached pricing data
 
 ## Installation
 
@@ -105,11 +108,12 @@ If you installed from source (development mode), you can also run:
 python3 -m src.main
 ```
 
-**Note**: Pricing information loads in the background after instance types are displayed. You'll see:
-- A progress indicator in the header showing how many prices have been loaded
-- "⏳ Loading..." in the tree for instances that don't have pricing yet
+**Note**: Pricing information loads in the background after instance types are displayed. The app uses smart caching with a 4-hour TTL, so subsequent runs are much faster:
+- First run: Pricing fetches from AWS API (shows "⏳ Loading..." in tree)
+- Subsequent runs: Pricing loads instantly from cache (shows cache hit statistics in header)
+- Progress indicator shows how many prices have been loaded and cache hit rate
 - Real-time updates as prices load (tree updates are throttled to preserve your expanded sections)
-- The application uses parallel requests and batch processing to fetch pricing efficiently, with automatic retry logic for rate-limited requests
+- Parallel requests and batch processing for optimal performance
 - Your expanded categories and families remain open during pricing updates
 
 ### CLI Mode (Headless)
@@ -137,7 +141,7 @@ instancepedia list --region us-east-1 --free-tier-only
 # Filter by instance family
 instancepedia list --region us-east-1 --family m5
 
-# Include pricing information (slower)
+# Include pricing information (cached for fast subsequent runs)
 instancepedia list --region us-east-1 --include-pricing
 ```
 
@@ -223,6 +227,49 @@ instancepedia compare t3.micro t3.small --region us-east-1 --include-pricing
 | Free Tier Eligible | Yes 🆓           | No              |
 +--------------------+-----------------+-----------------+
 ```
+
+#### Manage Pricing Cache
+
+Instancepedia automatically caches pricing data to reduce API calls and improve performance. Cache entries are stored in `~/.instancepedia/cache/` with a default TTL of 4 hours.
+
+```bash
+# View cache statistics
+instancepedia cache stats
+
+# View cache statistics as JSON
+instancepedia cache stats --format json
+
+# Clear all cached pricing data
+instancepedia cache clear
+
+# Clear cache for a specific region
+instancepedia cache clear --region us-east-1
+
+# Clear cache for a specific instance type
+instancepedia cache clear --instance-type t3.micro
+
+# Clear cache without confirmation prompt
+instancepedia cache clear --force
+```
+
+**Example Output (stats):**
+```
+Cache Statistics:
+  Location: /Users/username/.instancepedia/cache
+  Total entries: 487
+  Valid entries: 487
+  Expired entries: 0
+  Cache size: 89,234 bytes
+  Oldest entry: 2026-01-06T10:30:15
+  Newest entry: 2026-01-06T12:45:22
+```
+
+**Benefits of Caching:**
+- Significantly faster pricing loads on subsequent runs
+- Reduces AWS API calls and potential rate limiting
+- Automatic cache expiry ensures pricing data stays reasonably current
+- Cache is thread-safe and can be used from both TUI and CLI modes
+- Failed pricing lookups are also cached to avoid repeated failures
 
 #### Common Options
 
@@ -371,7 +418,9 @@ Alternatively, you can use the AWS Console:
 Instancepedia is optimized for performance in both TUI and CLI modes:
 
 ### TUI Mode
-- **Parallel Pricing Fetching**: Uses thread pools to fetch pricing data concurrently (5 parallel workers)
+- **Smart Caching**: Pricing data is cached locally with a 4-hour TTL, dramatically reducing load times on subsequent runs
+- **Cache Statistics**: Real-time display of cache hit rates in the pricing header
+- **Parallel Pricing Fetching**: Uses thread pools to fetch pricing data concurrently (10 parallel workers)
 - **Batch Spot Price Queries**: Fetches spot prices in batches of up to 50 instance types per API call
 - **Automatic Retry**: Handles rate limiting with exponential backoff (1s, 2s, 4s, etc.)
 - **Background Loading**: Pricing loads in the background so you can browse instance types immediately
@@ -379,18 +428,21 @@ Instancepedia is optimized for performance in both TUI and CLI modes:
 - **State Preservation**: Expanded categories and families are preserved during tree rebuilds
 
 ### CLI Mode
+- **Smart Caching**: Pricing data is cached locally (same cache as TUI mode) for faster repeated queries
 - **Efficient Filtering**: Filters are applied in-memory after fetching, minimizing API calls
 - **Optional Pricing**: Pricing is only fetched when `--include-pricing` is specified
 - **Parallel Processing**: When fetching pricing for multiple instances, uses parallel requests (5 workers)
 - **Streaming Output**: Results are printed as they're processed (for table format)
 - **Fast JSON/CSV Export**: Direct serialization without UI overhead
+- **Cache Management**: CLI commands to view cache statistics and clear cached data
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.9+
 - AWS credentials configured
 - Dependencies (installed automatically with pip):
-  - `boto3>=1.28.0` - AWS SDK
+  - `boto3>=1.28.0` - AWS SDK for sync operations
+  - `aioboto3>=12.0.0` - Async AWS SDK for TUI
   - `textual>=0.40.0` - TUI framework
   - `pydantic>=2.0.0` - Data validation
   - `pydantic-settings>=2.0.0` - Settings management
@@ -486,19 +538,18 @@ Or use the helper script:
 
 ### Running Tests
 
-The test suite includes comprehensive tests for all CLI functionality:
+The test suite includes comprehensive tests for all components:
 
 ```bash
-# Run all tests (48 tests covering CLI commands, output formatters, and parsers)
+# Run all tests (124 tests covering CLI, TUI, and services)
 pytest
 
 # Run with coverage report
 pytest --cov=src --cov-report=html
 
-# Run specific test file
-pytest tests/test_cli_output.py
-pytest tests/test_cli_commands.py
-pytest tests/test_cli_parser.py
+# Run specific test modules
+pytest tests/test_cli_*.py        # CLI tests
+pytest tests/test_tui_*.py        # TUI tests
 
 # Run with verbose output
 pytest -v
@@ -508,62 +559,69 @@ pytest --no-cov
 ```
 
 **Test Coverage:**
-- ✅ Output formatters (Table, JSON, CSV) - 24 tests
-- ✅ CLI command handlers - 9 tests  
-- ✅ Argument parser - 15 tests
+- ✅ CLI: Output formatters (Table, JSON, CSV), command handlers, argument parser
+- ✅ TUI: All screens (region selector, instance list, instance detail), navigation, filtering
+- ✅ Services: AWS client integration, pricing services, caching
 - ✅ All tests use mocking to avoid requiring AWS credentials
 
-The test suite validates all CLI functionality including error handling, output formatting, and command parsing.
+The test suite validates functionality including error handling, output formatting, UI interactions, and caching.
 
 ## Project Structure
 
 ```
 instancepedia/
-├── src/                      # Source code
+├── src/                          # Source code
 │   ├── __init__.py
-│   ├── app.py                # Main TUI application
-│   ├── main.py               # Entry point (supports both TUI and CLI)
-│   ├── debug.py              # Debug utilities
-│   ├── cli/                  # CLI module (headless mode)
+│   ├── app.py                    # Main TUI application
+│   ├── main.py                   # Entry point (supports both TUI and CLI)
+│   ├── cache.py                  # Pricing cache with TTL support
+│   ├── debug.py                  # Debug utilities
+│   ├── exceptions.py             # Custom exception types
+│   ├── logging_config.py         # Logging configuration
+│   ├── cli/                      # CLI module (headless mode)
 │   │   ├── __init__.py
-│   │   ├── commands.py       # CLI command handlers
-│   │   ├── output.py         # Output formatters (table, JSON, CSV)
-│   │   └── parser.py         # Argument parser
-│   ├── config/               # Configuration
+│   │   ├── commands.py           # CLI command handlers (including cache management)
+│   │   ├── output.py             # Output formatters (table, JSON, CSV)
+│   │   └── parser.py             # Argument parser
+│   ├── config/                   # Configuration
 │   │   ├── __init__.py
-│   │   └── settings.py       # Configuration settings
-│   ├── models/               # Data models
+│   │   └── settings.py           # Configuration settings
+│   ├── models/                   # Data models
 │   │   ├── __init__.py
 │   │   ├── free_tier.py
 │   │   ├── instance_type.py
 │   │   └── region.py
-│   ├── services/             # AWS service wrappers
+│   ├── services/                 # AWS service wrappers
 │   │   ├── __init__.py
-│   │   ├── aws_client.py
+│   │   ├── async_aws_client.py   # Async AWS client (aioboto3)
+│   │   ├── async_pricing_service.py  # Async pricing service with caching
+│   │   ├── aws_client.py         # Sync AWS client
 │   │   ├── free_tier_service.py
 │   │   ├── instance_service.py
-│   │   └── pricing_service.py
-│   └── ui/                   # TUI screens
+│   │   └── pricing_service.py    # Sync pricing service with caching
+│   └── ui/                       # TUI screens
 │       ├── __init__.py
 │       ├── instance_detail.py
-│       ├── instance_list.py
+│       ├── instance_list.py      # Shows cache statistics
 │       └── region_selector.py
-├── tests/                    # Test suite
+├── tests/                        # Test suite (124 tests)
 │   ├── __init__.py
-│   ├── conftest.py           # Pytest fixtures
-│   ├── test_cli_commands.py  # CLI command tests
-│   ├── test_cli_output.py    # Output formatter tests
-│   └── test_cli_parser.py    # Argument parser tests
-├── scripts/                  # Utility scripts
-│   ├── publish.sh            # PyPI publishing helper
-│   └── release.sh            # Release automation script
-├── screenshots/              # Application screenshots
-├── .gitignore               # Git ignore rules
-├── LICENSE                  # MIT License
-├── MANIFEST.in              # Package manifest for PyPI
-├── pyproject.toml           # Project configuration and metadata
-├── requirements.txt         # Python dependencies
-└── README.md                # This file
+│   ├── conftest.py               # Pytest fixtures
+│   ├── test_cli_commands.py      # CLI command tests
+│   ├── test_cli_output.py        # Output formatter tests
+│   ├── test_cli_parser.py        # Argument parser tests
+│   ├── test_tui_*.py             # TUI component tests
+│   └── ...
+├── scripts/                      # Utility scripts
+│   ├── publish.sh                # PyPI publishing helper
+│   └── release.sh                # Release automation script
+├── screenshots/                  # Application screenshots
+├── .gitignore                   # Git ignore rules
+├── LICENSE                      # MIT License
+├── MANIFEST.in                  # Package manifest for PyPI
+├── pyproject.toml               # Project configuration and metadata
+├── requirements.txt             # Python dependencies
+└── README.md                    # This file
 ```
 
 ## License
