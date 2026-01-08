@@ -471,6 +471,42 @@ class InstanceList(Screen):
                 if criteria.architecture in inst.processor_info.supported_architectures
             ]
 
+        # Processor family filter
+        if criteria.processor_family != "any":
+            if criteria.processor_family == "intel":
+                # Intel processors typically don't have specific identifiers in instance names
+                # but are implied when not AMD or Graviton
+                filtered = [
+                    inst for inst in filtered
+                    if "amd" not in inst.instance_type.lower() and "arm64" not in inst.processor_info.supported_architectures
+                ]
+            elif criteria.processor_family == "amd":
+                # AMD instances have 'a' suffix (e.g., m5a, c5a, r5a)
+                filtered = [
+                    inst for inst in filtered
+                    if "a." in inst.instance_type or inst.instance_type.endswith("a")
+                ]
+            elif criteria.processor_family == "graviton":
+                # Graviton instances support arm64 architecture
+                filtered = [
+                    inst for inst in filtered
+                    if "arm64" in inst.processor_info.supported_architectures
+                ]
+
+        # Network performance filter
+        if criteria.network_performance != "any":
+            perf_map = {
+                "low": ["low", "very low", "up to 5 gigabit"],
+                "moderate": ["moderate", "up to 10 gigabit", "up to 12 gigabit"],
+                "high": ["high", "10 gigabit", "12 gigabit", "25 gigabit", "up to 25 gigabit"],
+                "very_high": ["50 gigabit", "100 gigabit", "200 gigabit", "up to 100 gigabit", "up to 200 gigabit"]
+            }
+            target_perfs = perf_map.get(criteria.network_performance, [])
+            filtered = [
+                inst for inst in filtered
+                if any(perf.lower() in inst.network_info.network_performance.lower() for perf in target_perfs)
+            ]
+
         # Family filter (comma-separated list)
         if criteria.family_filter.strip():
             families = [f.strip().lower() for f in criteria.family_filter.split(",") if f.strip()]
@@ -499,6 +535,24 @@ class InstanceList(Screen):
             filtered = [inst for inst in filtered if inst.instance_storage_info and inst.instance_storage_info.nvme_support == "supported"]
         elif criteria.nvme_support == "unsupported":
             filtered = [inst for inst in filtered if not inst.instance_storage_info or not inst.instance_storage_info.nvme_support or inst.instance_storage_info.nvme_support == "unsupported"]
+
+        # Price range filter (only filter instances with pricing data)
+        if criteria.min_price is not None or criteria.max_price is not None:
+            def matches_price_range(inst):
+                # Only filter instances that have pricing data
+                if not inst.pricing or inst.pricing.on_demand_price is None:
+                    # Keep instances without pricing if we're filtering by price
+                    # (they might get priced later)
+                    return True
+
+                price = inst.pricing.on_demand_price
+                if criteria.min_price is not None and price < criteria.min_price:
+                    return False
+                if criteria.max_price is not None and price > criteria.max_price:
+                    return False
+                return True
+
+            filtered = [inst for inst in filtered if matches_price_range(inst)]
 
         self.filtered_instance_types = filtered
         # Preserve expanded state when filtering
@@ -681,7 +735,13 @@ class InstanceList(Screen):
                         1 if criteria.burstable != "any" else 0,
                         1 if criteria.free_tier != "any" else 0,
                         1 if criteria.architecture != "any" else 0,
+                        1 if criteria.processor_family != "any" else 0,
+                        1 if criteria.network_performance != "any" else 0,
                         1 if criteria.family_filter.strip() else 0,
+                        1 if criteria.storage_type != "any" else 0,
+                        1 if criteria.nvme_support != "any" else 0,
+                        1 if criteria.min_price is not None else 0,
+                        1 if criteria.max_price is not None else 0,
                     ])
                     status.update(f"🔍 {filter_count} filter(s) active - Showing {len(self.filtered_instance_types)} of {len(self.all_instance_types)} instances")
                     # Clear message after 3 seconds

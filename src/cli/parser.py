@@ -128,6 +128,32 @@ Examples:
         help="Filter by NVMe support: required, supported, or unsupported"
     )
     list_parser.add_argument(
+        "--processor-family",
+        type=str,
+        choices=["intel", "amd", "graviton"],
+        default=None,
+        help="Filter by processor family: intel, amd, or graviton"
+    )
+    list_parser.add_argument(
+        "--network-performance",
+        type=str,
+        choices=["low", "moderate", "high", "very-high"],
+        default=None,
+        help="Filter by network performance tier"
+    )
+    list_parser.add_argument(
+        "--min-price",
+        type=float,
+        default=None,
+        help="Minimum hourly price in USD"
+    )
+    list_parser.add_argument(
+        "--max-price",
+        type=float,
+        default=None,
+        help="Maximum hourly price in USD"
+    )
+    list_parser.add_argument(
         "--include-pricing",
         action="store_true",
         help="Include pricing information (slower)"
@@ -181,6 +207,32 @@ Examples:
         choices=["required", "supported", "unsupported"],
         default=None,
         help="Filter by NVMe support: required, supported, or unsupported"
+    )
+    search_parser.add_argument(
+        "--processor-family",
+        type=str,
+        choices=["intel", "amd", "graviton"],
+        default=None,
+        help="Filter by processor family: intel, amd, or graviton"
+    )
+    search_parser.add_argument(
+        "--network-performance",
+        type=str,
+        choices=["low", "moderate", "high", "very-high"],
+        default=None,
+        help="Filter by network performance tier"
+    )
+    search_parser.add_argument(
+        "--min-price",
+        type=float,
+        default=None,
+        help="Minimum hourly price in USD"
+    )
+    search_parser.add_argument(
+        "--max-price",
+        type=float,
+        default=None,
+        help="Maximum hourly price in USD"
     )
     search_parser.add_argument(
         "--include-pricing",

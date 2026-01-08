@@ -68,6 +68,45 @@ def cmd_list(args) -> int:
             elif args.nvme == "unsupported":
                 instances = [inst for inst in instances if not inst.instance_storage_info or not inst.instance_storage_info.nvme_support or inst.instance_storage_info.nvme_support == "unsupported"]
 
+        # Processor family filter
+        if hasattr(args, 'processor_family') and args.processor_family:
+            if args.processor_family == "intel":
+                # Intel instances: not AMD and not Graviton
+                instances = [
+                    inst for inst in instances
+                    if "amd" not in inst.instance_type.lower() and "arm64" not in inst.processor_info.supported_architectures
+                ]
+            elif args.processor_family == "amd":
+                # AMD instances have 'a' in the name (e.g., m5a, c5a)
+                instances = [
+                    inst for inst in instances
+                    if "a." in inst.instance_type or inst.instance_type.endswith("a")
+                ]
+            elif args.processor_family == "graviton":
+                # Graviton instances support arm64
+                instances = [
+                    inst for inst in instances
+                    if "arm64" in inst.processor_info.supported_architectures
+                ]
+
+        # Network performance filter
+        if hasattr(args, 'network_performance') and args.network_performance:
+            # Map CLI argument to performance keywords
+            perf_map = {
+                "low": ["low", "very low", "up to 5 gigabit"],
+                "moderate": ["moderate", "up to 10 gigabit", "up to 12 gigabit"],
+                "high": ["high", "10 gigabit", "12 gigabit", "25 gigabit", "up to 25 gigabit"],
+                "very-high": ["50 gigabit", "100 gigabit", "200 gigabit", "up to 100 gigabit", "up to 200 gigabit"]
+            }
+            target_perfs = perf_map.get(args.network_performance, [])
+            instances = [
+                inst for inst in instances
+                if any(perf.lower() in inst.network_info.network_performance.lower() for perf in target_perfs)
+            ]
+
+        # Price range filter (applied after pricing is fetched)
+        # Note: This will be applied after pricing fetch if needed
+
         # Fetch pricing if requested and not already fetched
         if args.include_pricing and instances:
             print("Fetching pricing information...", file=sys.stderr)
@@ -97,7 +136,26 @@ def cmd_list(args) -> int:
                     completed += 1
                     if not args.quiet and completed % 10 == 0:
                         print(f"Fetched pricing for {completed}/{len(instances)} instances...", file=sys.stderr)
-        
+
+        # Apply price range filter (after pricing is fetched)
+        if hasattr(args, 'min_price') or hasattr(args, 'max_price'):
+            min_price = getattr(args, 'min_price', None)
+            max_price = getattr(args, 'max_price', None)
+
+            if min_price is not None or max_price is not None:
+                def matches_price_range(inst):
+                    if not inst.pricing or inst.pricing.on_demand_price is None:
+                        return True  # Keep instances without pricing
+
+                    price = inst.pricing.on_demand_price
+                    if min_price is not None and price < min_price:
+                        return False
+                    if max_price is not None and price > max_price:
+                        return False
+                    return True
+
+                instances = [inst for inst in instances if matches_price_range(inst)]
+
         # Sort instances
         instances = sorted(instances, key=lambda x: x.instance_type)
         
