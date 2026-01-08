@@ -435,10 +435,77 @@ Models use Pydantic v2 for validation and serialization.
 ### Configuration
 
 **`src/config/settings.py`**: Uses `pydantic-settings` for environment-based config:
+
+**AWS Configuration:**
 - `INSTANCEPEDIA_AWS_REGION` - Default region
 - `INSTANCEPEDIA_AWS_PROFILE` - AWS profile
 
+**Timeout Configuration:**
+- `INSTANCEPEDIA_AWS_CONNECT_TIMEOUT` - Connection timeout (default: 10s)
+- `INSTANCEPEDIA_AWS_READ_TIMEOUT` - Read timeout for AWS APIs (default: 60s)
+- `INSTANCEPEDIA_PRICING_READ_TIMEOUT` - Read timeout for Pricing API (default: 90s)
+
+**Performance Configuration:**
+- `INSTANCEPEDIA_PRICING_CONCURRENCY` - Max concurrent pricing requests in TUI mode (default: 10)
+- `INSTANCEPEDIA_PRICING_RETRY_CONCURRENCY` - Max concurrent requests for retries (default: 3)
+- `INSTANCEPEDIA_CLI_PRICING_CONCURRENCY` - Max concurrent pricing requests in CLI mode (default: 5)
+- `INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS` - Delay between requests in milliseconds (default: 50)
+- `INSTANCEPEDIA_SPOT_BATCH_SIZE` - Instance types per spot price API call (default: 50)
+- `INSTANCEPEDIA_UI_UPDATE_THROTTLE` - Update TUI every N pricing updates (default: 10)
+
+All settings are configurable via environment variables with the `INSTANCEPEDIA_` prefix.
+
 ## Key Implementation Details
+
+### Performance Optimization
+
+The application supports fine-grained performance tuning via configuration settings:
+
+**Concurrency Control:**
+- **TUI Mode**: Uses `pricing_concurrency` (default: 10) for parallel pricing requests
+- **CLI Mode**: Uses `cli_pricing_concurrency` (default: 5) to avoid overwhelming scripts
+- **Retries**: Uses `pricing_retry_concurrency` (default: 3) for lower concurrency on failed requests
+- All concurrency is managed via `asyncio.Semaphore` (TUI) or `ThreadPoolExecutor` (CLI)
+
+**Request Throttling:**
+- `pricing_request_delay_ms` controls delay between requests (default: 50ms)
+- Helps avoid AWS API rate limiting
+- Configurable per environment (faster for good networks, slower for rate-limited accounts)
+
+**Batch Sizing:**
+- `spot_batch_size` controls how many instance types are queried per EC2 API call (default: 50)
+- EC2 API supports up to ~50 instance types per spot price history request
+- Can be tuned based on API limits and network conditions
+
+**UI Update Optimization:**
+- `ui_update_throttle` controls how often the TUI updates during pricing fetch (default: every 10 prices)
+- Reduces UI flicker and improves responsiveness
+- Higher values for large instance lists, lower values for better progress visibility
+
+**Performance Metrics:**
+- Async pricing service logs timing and throughput metrics
+- Logs: "Batch pricing fetch completed in Xs: Y/Z prices fetched (success rate)"
+- Helps users tune performance settings for their environment
+
+**Usage in Code:**
+```python
+# TUI (app.py)
+await pricing_service.get_on_demand_prices_batch(
+    instance_types,
+    region,
+    concurrency=self.settings.pricing_concurrency  # Configurable
+)
+
+# CLI (commands.py)
+with ThreadPoolExecutor(max_workers=settings.cli_pricing_concurrency) as executor:
+    # Parallel pricing fetch
+```
+
+**Tuning Recommendations:**
+- **Fast network, no rate limits**: Increase concurrency to 15-20, reduce delay to 25-30ms
+- **Rate-limited account**: Decrease concurrency to 5, increase delay to 100ms
+- **Large instance lists (500+)**: Increase UI throttle to 20-50
+- **CI/CD scripts**: Increase CLI concurrency to 10 for faster batch operations
 
 ### Pricing API Region Mapping
 

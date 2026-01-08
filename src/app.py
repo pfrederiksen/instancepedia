@@ -355,7 +355,7 @@ class InstancepediaApp(App):
 
                 # Create async AWS client and pricing service
                 async_client = AsyncAWSClient(self.current_region, self.settings.aws_profile)
-                pricing_service = AsyncPricingService(async_client)
+                pricing_service = AsyncPricingService(async_client, settings=self.settings)
                 DebugLog.log("Async pricing service created successfully")
 
                 total_to_fetch = len(self.instance_types)
@@ -386,8 +386,9 @@ class InstancepediaApp(App):
                     """Progress callback for batch pricing fetch"""
                     nonlocal completed_count
                     completed_count = completed
-                    # Update UI periodically - schedule on main thread
-                    if completed % 10 == 0 or completed == total:
+                    # Update UI periodically - schedule on main thread (configurable throttle)
+                    throttle = self.settings.ui_update_throttle
+                    if completed % throttle == 0 or completed == total:
                         def do_update():
                             try:
                                 instance_list.update_pricing_progress()
@@ -408,7 +409,7 @@ class InstancepediaApp(App):
                 await pricing_service.get_on_demand_prices_batch(
                     instance_type_names,
                     self.current_region,
-                    concurrency=10,  # Concurrent requests (async handles this efficiently)
+                    concurrency=self.settings.pricing_concurrency,  # Configurable concurrent requests
                     progress_callback=on_progress,
                     price_callback=on_price,
                     cache_hit_callback=on_cache_hit
@@ -430,7 +431,7 @@ class InstancepediaApp(App):
                     retry_prices = await pricing_service.get_on_demand_prices_batch(
                         failed_names,
                         self.current_region,
-                        concurrency=3  # Lower concurrency for retries
+                        concurrency=self.settings.pricing_retry_concurrency  # Configurable retry concurrency
                     )
 
                     for inst in failed_instances:
@@ -510,7 +511,7 @@ class InstancepediaApp(App):
                 from src.models.instance_type import PricingInfo
 
                 async_client = AsyncAWSClient(self.current_region, self.settings.aws_profile)
-                pricing_service = AsyncPricingService(async_client)
+                pricing_service = AsyncPricingService(async_client, settings=self.settings)
 
                 failed_names = [inst.instance_type for inst in failed_instances]
                 instance_map = {inst.instance_type: inst for inst in failed_instances}
@@ -519,7 +520,7 @@ class InstancepediaApp(App):
                 prices = await pricing_service.get_on_demand_prices_batch(
                     failed_names,
                     self.current_region,
-                    concurrency=3  # Lower concurrency for retry
+                    concurrency=self.settings.pricing_retry_concurrency  # Configurable retry concurrency
                 )
 
                 # Update instances with fetched prices

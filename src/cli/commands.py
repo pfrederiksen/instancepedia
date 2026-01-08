@@ -110,8 +110,9 @@ def cmd_list(args) -> int:
         # Fetch pricing if requested and not already fetched
         if args.include_pricing and instances:
             print("Fetching pricing information...", file=sys.stderr)
-            pricing_service = PricingService(aws_client)
-            
+            settings = Settings()
+            pricing_service = PricingService(aws_client, settings=settings)
+
             # Fetch pricing in parallel
             def fetch_price(instance: InstanceType):
                 try:
@@ -127,9 +128,9 @@ def cmd_list(args) -> int:
                     )
                 except Exception:
                     pass  # Continue if pricing fails for one instance
-            
-            # Use thread pool for parallel pricing fetch
-            with ThreadPoolExecutor(max_workers=5) as executor:
+
+            # Use thread pool for parallel pricing fetch (configurable concurrency)
+            with ThreadPoolExecutor(max_workers=settings.cli_pricing_concurrency) as executor:
                 futures = {executor.submit(fetch_price, inst): inst for inst in instances}
                 completed = 0
                 for future in as_completed(futures):
@@ -701,7 +702,8 @@ def cmd_compare_family(args) -> int:
             if not args.quiet:
                 print(f"Fetching pricing for {len(family_instances)} instances...", file=sys.stderr)
 
-            pricing_service = PricingService(aws_client)
+            settings = Settings()
+            pricing_service = PricingService(aws_client, settings=settings)
 
             def fetch_price(instance: InstanceType):
                 try:
@@ -711,7 +713,7 @@ def cmd_compare_family(args) -> int:
                 except Exception:
                     pass
 
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            with ThreadPoolExecutor(max_workers=settings.cli_pricing_concurrency) as executor:
                 futures = {executor.submit(fetch_price, inst): inst for inst in family_instances}
                 for future in as_completed(futures):
                     pass  # Just wait for completion
@@ -900,7 +902,8 @@ def cmd_presets_apply(args) -> int:
             if not args.quiet:
                 print("Fetching pricing information...", file=sys.stderr)
 
-            pricing_service = PricingService(aws_client)
+            settings = Settings()
+            pricing_service = PricingService(aws_client, settings=settings)
 
             def fetch_price(instance: InstanceType):
                 try:
@@ -910,7 +913,7 @@ def cmd_presets_apply(args) -> int:
                 except Exception:
                     pass
 
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            with ThreadPoolExecutor(max_workers=settings.cli_pricing_concurrency) as executor:
                 futures = {executor.submit(fetch_price, inst): inst for inst in filtered_instances}
                 for future in as_completed(futures):
                     pass

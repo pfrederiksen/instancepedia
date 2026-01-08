@@ -10,6 +10,7 @@ from botocore.exceptions import ClientError, BotoCoreError
 from src.services.async_aws_client import AsyncAWSClient
 from src.debug import DebugLog
 from src.cache import get_pricing_cache
+from src.config.settings import Settings
 
 logger = logging.getLogger("instancepedia")
 
@@ -50,17 +51,19 @@ REGION_MAP = {
 class AsyncPricingService:
     """Async service for fetching EC2 instance pricing"""
 
-    def __init__(self, aws_client: AsyncAWSClient, use_cache: bool = True):
+    def __init__(self, aws_client: AsyncAWSClient, use_cache: bool = True, settings: Optional[Settings] = None):
         """
         Initialize async pricing service
 
         Args:
             aws_client: Async AWS client wrapper
             use_cache: Whether to use pricing cache (default: True)
+            settings: Application settings (default: create new Settings instance)
         """
         self.aws_client = aws_client
         self.use_cache = use_cache
         self.cache = get_pricing_cache() if use_cache else None
+        self.settings = settings or Settings()
 
     async def get_on_demand_price(
         self,
@@ -419,6 +422,10 @@ class AsyncPricingService:
         Returns:
             Dictionary mapping instance_type to price (or None)
         """
+        import time
+        start_time = time.time()
+        logger.info(f"Starting batch pricing fetch: {len(instance_types)} instances, concurrency={concurrency}, delay={self.settings.pricing_request_delay_ms}ms")
+
         semaphore = asyncio.Semaphore(concurrency)
         results = {}
         completed = 0
@@ -427,8 +434,9 @@ class AsyncPricingService:
         async def fetch_with_semaphore(inst_type: str):
             nonlocal completed
             async with semaphore:
-                # Small delay to avoid rate limiting
-                await asyncio.sleep(0.05)
+                # Small delay to avoid rate limiting (configurable via settings)
+                delay_seconds = self.settings.pricing_request_delay_ms / 1000.0
+                await asyncio.sleep(delay_seconds)
                 price = await self.get_on_demand_price(inst_type, region, cache_hit_callback=cache_hit_callback)
                 results[inst_type] = price
                 completed += 1
@@ -444,6 +452,13 @@ class AsyncPricingService:
 
         # Run all tasks concurrently
         await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Log performance metrics
+        elapsed = time.time() - start_time
+        successful = sum(1 for p in results.values() if p is not None)
+        logger.info(f"Batch pricing fetch completed in {elapsed:.2f}s: {successful}/{total} prices fetched ({successful/total*100:.1f}% success rate)")
+        if elapsed > 0:
+            logger.info(f"Performance: {total/elapsed:.1f} requests/second")
 
         return results
 
@@ -467,8 +482,8 @@ class AsyncPricingService:
 
         try:
             async with self.aws_client.get_ec2_client() as ec2:
-                # Process in chunks (EC2 API limit is ~50 instance types)
-                chunk_size = 50
+                # Process in chunks (EC2 API limit is ~50 instance types, configurable)
+                chunk_size = self.settings.spot_batch_size
                 for i in range(0, len(instance_types), chunk_size):
                     chunk = instance_types[i:i + chunk_size]
 
