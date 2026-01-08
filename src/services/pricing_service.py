@@ -12,6 +12,7 @@ import statistics
 from src.services.aws_client import AWSClient
 from src.debug import DebugLog
 from src.cache import get_pricing_cache
+from src.config.settings import Settings
 
 logger = logging.getLogger("instancepedia")
 
@@ -55,17 +56,19 @@ class SpotPriceHistory:
 class PricingService:
     """Service for fetching EC2 instance pricing"""
 
-    def __init__(self, aws_client: AWSClient, use_cache: bool = True):
+    def __init__(self, aws_client: AWSClient, use_cache: bool = True, settings: Optional[Settings] = None):
         """
         Initialize pricing service
 
         Args:
             aws_client: AWS client wrapper
             use_cache: Whether to use pricing cache (default: True)
+            settings: Application settings (default: create new Settings instance)
         """
         self.aws_client = aws_client
         self.use_cache = use_cache
         self.cache = get_pricing_cache() if use_cache else None
+        self.settings = settings or Settings()
 
     def get_on_demand_price(self, instance_type: str, region: str, max_retries: int = 3) -> Optional[float]:
         """
