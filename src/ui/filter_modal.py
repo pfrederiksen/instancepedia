@@ -20,9 +20,13 @@ class FilterCriteria:
         self.burstable: str = "any"  # any, yes, no
         self.free_tier: str = "any"  # any, yes, no
         self.architecture: str = "any"  # any, x86_64, arm64
+        self.processor_family: str = "any"  # any, intel, amd, graviton
+        self.network_performance: str = "any"  # any, low, moderate, high, very_high
         self.family_filter: str = ""  # comma-separated list of families
         self.storage_type: str = "any"  # any, ebs_only, has_instance_store
         self.nvme_support: str = "any"  # any, required, supported, unsupported
+        self.min_price: Optional[float] = None  # minimum hourly price
+        self.max_price: Optional[float] = None  # maximum hourly price
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -36,9 +40,13 @@ class FilterCriteria:
             "burstable": self.burstable,
             "free_tier": self.free_tier,
             "architecture": self.architecture,
+            "processor_family": self.processor_family,
+            "network_performance": self.network_performance,
             "family_filter": self.family_filter,
             "storage_type": self.storage_type,
             "nvme_support": self.nvme_support,
+            "min_price": self.min_price,
+            "max_price": self.max_price,
         }
 
     def from_dict(self, data: Dict[str, Any]) -> None:
@@ -52,9 +60,13 @@ class FilterCriteria:
         self.burstable = data.get("burstable", "any")
         self.free_tier = data.get("free_tier", "any")
         self.architecture = data.get("architecture", "any")
+        self.processor_family = data.get("processor_family", "any")
+        self.network_performance = data.get("network_performance", "any")
         self.family_filter = data.get("family_filter", "")
         self.storage_type = data.get("storage_type", "any")
         self.nvme_support = data.get("nvme_support", "any")
+        self.min_price = data.get("min_price")
+        self.max_price = data.get("max_price")
 
     def has_active_filters(self) -> bool:
         """Check if any filters are active"""
@@ -68,9 +80,13 @@ class FilterCriteria:
             or self.burstable != "any"
             or self.free_tier != "any"
             or self.architecture != "any"
+            or self.processor_family != "any"
+            or self.network_performance != "any"
             or bool(self.family_filter.strip())
             or self.storage_type != "any"
             or self.nvme_support != "any"
+            or self.min_price is not None
+            or self.max_price is not None
         )
 
     def reset(self) -> None:
@@ -238,6 +254,24 @@ class FilterModal(ModalScreen):
                         id="arch-filter"
                     )
 
+                # Processor family filter
+                with Horizontal(classes="filter-row"):
+                    yield Static("Processor Family:", classes="filter-label")
+                    yield Select(
+                        [("Any", "any"), ("Intel", "intel"), ("AMD", "amd"), ("Graviton (ARM)", "graviton")],
+                        value=self.criteria.processor_family,
+                        id="processor-family-filter"
+                    )
+
+                # Network performance filter
+                with Horizontal(classes="filter-row"):
+                    yield Static("Network Performance:", classes="filter-label")
+                    yield Select(
+                        [("Any", "any"), ("Low", "low"), ("Moderate", "moderate"), ("High", "high"), ("Very High", "very_high")],
+                        value=self.criteria.network_performance,
+                        id="network-performance-filter"
+                    )
+
                 # Family filter
                 with Horizontal(classes="filter-row"):
                     yield Static("Instance Families:", classes="filter-label")
@@ -263,6 +297,21 @@ class FilterModal(ModalScreen):
                         [("Any", "any"), ("Required", "required"), ("Supported", "supported"), ("Unsupported", "unsupported")],
                         value=self.criteria.nvme_support,
                         id="nvme-filter"
+                    )
+
+                # Price range filters
+                with Horizontal(classes="filter-row"):
+                    yield Static("Price Range ($/hr):", classes="filter-label")
+                    yield Input(
+                        placeholder="Min",
+                        value=str(self.criteria.min_price) if self.criteria.min_price is not None else "",
+                        id="min-price"
+                    )
+                    yield Static("-", classes="filter-separator")
+                    yield Input(
+                        placeholder="Max",
+                        value=str(self.criteria.max_price) if self.criteria.max_price is not None else "",
+                        id="max-price"
                     )
 
                 # Buttons
@@ -323,11 +372,27 @@ class FilterModal(ModalScreen):
         criteria.burstable = self.query_one("#burstable-filter", Select).value
         criteria.free_tier = self.query_one("#free-tier-filter", Select).value
         criteria.architecture = self.query_one("#arch-filter", Select).value
+        criteria.processor_family = self.query_one("#processor-family-filter", Select).value
+        criteria.network_performance = self.query_one("#network-performance-filter", Select).value
         criteria.storage_type = self.query_one("#storage-type-filter", Select).value
         criteria.nvme_support = self.query_one("#nvme-filter", Select).value
 
         # Get family filter
         criteria.family_filter = self.query_one("#family-filter", Input).value.strip()
+
+        # Get price range values
+        min_price_input = self.query_one("#min-price", Input)
+        max_price_input = self.query_one("#max-price", Input)
+        try:
+            if min_price_input.value.strip():
+                criteria.min_price = float(min_price_input.value.strip())
+        except ValueError:
+            pass
+        try:
+            if max_price_input.value.strip():
+                criteria.max_price = float(max_price_input.value.strip())
+        except ValueError:
+            pass
 
         # Dismiss with criteria
         self.dismiss(criteria)
@@ -343,9 +408,13 @@ class FilterModal(ModalScreen):
         self.query_one("#burstable-filter", Select).value = "any"
         self.query_one("#free-tier-filter", Select).value = "any"
         self.query_one("#arch-filter", Select).value = "any"
+        self.query_one("#processor-family-filter", Select).value = "any"
+        self.query_one("#network-performance-filter", Select).value = "any"
         self.query_one("#family-filter", Input).value = ""
         self.query_one("#storage-type-filter", Select).value = "any"
         self.query_one("#nvme-filter", Select).value = "any"
+        self.query_one("#min-price", Input).value = ""
+        self.query_one("#max-price", Input).value = ""
 
     def action_cancel(self) -> None:
         """Cancel and close modal"""

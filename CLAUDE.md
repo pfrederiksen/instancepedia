@@ -56,11 +56,21 @@ Update `TROUBLESHOOTING.md` when you:
 
 ### How to Update Documentation
 
+**CRITICAL**: After ANY feature addition, bug fix, or change, review ALL documentation files (.md files) to ensure they're updated.
+
+**All Documentation Files to Consider**:
+- `README.md` - User-facing documentation
+- `CLAUDE.md` - Developer/architecture documentation
+- `CONTRIBUTING.md` - Contributor guidelines
+- `TROUBLESHOOTING.md` - Common issues and solutions
+
+**Documentation Update Process**:
 1. **Make code changes first**
-2. **Update documentation in the SAME commit/PR** - never defer documentation to later
-3. **Be specific** - include examples, code snippets, and clear explanations
-4. **Update both files if needed** - CLAUDE.md for developers, README.md for users
-5. **Test your examples** - ensure code snippets and commands actually work
+2. **Review ALL .md files** - determine which need updates based on your changes
+3. **Update documentation in the SAME commit/PR** - never defer documentation to later
+4. **Be specific** - include examples, code snippets, and clear explanations
+5. **Update multiple files if needed** - features often require updates to both README.md (user docs) and CLAUDE.md (developer docs)
+6. **Test your examples** - ensure code snippets and commands actually work
 
 **Bad Practice**:
 ```
@@ -144,6 +154,40 @@ Storage-focused filtering allows users to find instances based on storage charac
 - Storage type filter checks `instance_storage_info.total_size_in_gb`
 - NVMe filter checks `instance_storage_info.nvme_support`
 - Filters applied in `_apply_filters()` method
+
+### Advanced Filtering
+
+Advanced filtering options provide fine-grained control over instance selection:
+
+**Processor Family Filter**:
+- **Intel**: Filters to Intel processors (excludes AMD and Graviton)
+- **AMD**: Filters to AMD processors (instances with 'a' suffix, e.g., m5a, c5a, r5a)
+- **Graviton**: Filters to AWS Graviton ARM processors (arm64 architecture)
+- TUI: Processor Family dropdown in filter modal
+- CLI: `--processor-family {intel,amd,graviton}`
+
+**Network Performance Filter**:
+- **Low**: Up to 5 Gigabit network performance
+- **Moderate**: 10-12 Gigabit network performance
+- **High**: 10-25 Gigabit network performance
+- **Very High**: 50+ Gigabit network performance
+- TUI: Network Performance dropdown in filter modal
+- CLI: `--network-performance {low,moderate,high,very-high}`
+
+**Price Range Filter**:
+- **Min Price**: Minimum hourly on-demand price in USD
+- **Max Price**: Maximum hourly on-demand price in USD
+- Only filters instances with pricing data loaded
+- Instances without pricing are kept (not filtered out)
+- TUI: Price Range input fields in filter modal
+- CLI: `--min-price <float> --max-price <float>`
+
+**Implementation** (`src/ui/filter_modal.py`, `src/ui/instance_list.py`, `src/cli/commands.py`):
+- Added `processor_family`, `network_performance`, `min_price`, `max_price` to `FilterCriteria`
+- Processor family uses heuristics (AMD has 'a' suffix, Graviton has arm64 arch)
+- Network performance maps to keyword patterns in `network_info.network_performance`
+- Price filter applied after pricing fetch in CLI, immediately in TUI
+- All filters work in both TUI (filter modal) and CLI (command-line arguments)
 
 **CLI Integration** (`src/cli/parser.py`, `src/cli/commands.py`):
 - `--storage-type` argument: `ebs-only` or `instance-store`

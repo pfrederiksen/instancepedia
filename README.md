@@ -30,7 +30,7 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 - 💵 **Cost Calculator**: Automatic calculation of monthly and annual costs, plus cost per vCPU and GB RAM
 - 🔍 **Advanced Search & Filtering**: Powerful filtering capabilities
   - Search by instance type name (real-time as you type)
-  - Advanced attribute filters: vCPU count (min/max), memory size (min/max), GPU presence, current generation, burstable performance, free tier eligibility, architecture (x86_64/ARM64), instance families, storage type (EBS-only/instance store), NVMe support
+  - Advanced attribute filters: vCPU count (min/max), memory size (min/max), GPU presence, current generation, burstable performance, free tier eligibility, architecture (x86_64/ARM64), processor family (Intel/AMD/Graviton), network performance tier, price range (min/max), instance families, storage type (EBS-only/instance store), NVMe support
   - Filter modal with easy-to-use interface (press 'F' to open)
   - Active filter indicator in status bar
   - Filters are preserved across navigation
@@ -72,7 +72,7 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 ### CLI Mode (Headless)
 - 🔧 **Scriptable**: Perfect for automation, CI/CD pipelines, and scripting
 - 📊 **Multiple Output Formats**: Table (human-readable), JSON (machine-readable), CSV (spreadsheet-friendly)
-- 🔍 **Powerful Filtering**: Search, filter by family, storage type, NVMe support, free tier, and more
+- 🔍 **Powerful Filtering**: Search, filter by family, processor family (Intel/AMD/Graviton), network performance tier, price range, storage type, NVMe support, free tier, and more
 - 💰 **Pricing Queries**: Get pricing information for specific instances (on-demand and spot prices)
 - 📈 **Comparison**: Compare two instance types side-by-side with detailed metrics
 - 💵 **Cost Calculator**: Estimate costs with different usage patterns and pricing models
@@ -183,6 +183,19 @@ instancepedia list --region us-east-1 --storage-type instance-store
 # Filter by NVMe support
 instancepedia list --region us-east-1 --nvme required
 instancepedia list --region us-east-1 --nvme supported
+
+# Filter by processor family (Intel, AMD, or Graviton)
+instancepedia list --region us-east-1 --processor-family intel
+instancepedia list --region us-east-1 --processor-family amd
+instancepedia list --region us-east-1 --processor-family graviton
+
+# Filter by network performance tier
+instancepedia list --region us-east-1 --network-performance high
+instancepedia list --region us-east-1 --network-performance very-high
+
+# Filter by price range
+instancepedia list --region us-east-1 --min-price 0.01 --max-price 0.10
+instancepedia list --region us-east-1 --max-price 0.05 --include-pricing
 
 # Include pricing information (cached for fast subsequent runs)
 instancepedia list --region us-east-1 --include-pricing
@@ -451,7 +464,12 @@ instancepedia spot-history m5.large --region us-east-1 --days 7 --format json
   - Burstable Performance: Any / Yes / No
   - Free Tier Eligible: Any / Yes / No
   - Architecture: Any / x86_64 / ARM64
+  - Processor Family: Any / Intel / AMD / Graviton (ARM)
+  - Network Performance: Any / Low / Moderate / High / Very High
+  - Price Range ($/hr): Min/max hourly price filter
   - Instance Families: Comma-separated list (e.g., t3, m5, c6i)
+  - Storage Type: Any / EBS Only / Has Instance Store
+  - NVMe Support: Any / Required / Supported / Unsupported
 
 **Tree Navigation Tips:**
 - The root "Instance Types" node is expanded by default

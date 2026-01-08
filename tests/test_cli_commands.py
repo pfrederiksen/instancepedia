@@ -97,6 +97,12 @@ class TestCmdList:
         args.search = "t3"
         args.free_tier_only = False
         args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
         args.include_pricing = False
         
         result = commands.cmd_list(args)
