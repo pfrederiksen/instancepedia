@@ -241,9 +241,10 @@ pytest tests/test_tui_instance_list.py::TestInstanceList::test_instance_list_dis
 ### Release and Publishing
 ```bash
 # Create a new release (patch/minor/major)
-./scripts/release.sh patch    # 0.2.2 -> 0.2.3
-./scripts/release.sh minor    # 0.2.2 -> 0.3.0
-./scripts/release.sh major    # 0.2.2 -> 1.0.0
+# Note: release.sh requires confirmation - use echo "y" to auto-confirm
+echo "y" | ./scripts/release.sh patch    # 0.2.2 -> 0.2.3
+echo "y" | ./scripts/release.sh minor    # 0.2.2 -> 0.3.0
+echo "y" | ./scripts/release.sh major    # 0.2.2 -> 1.0.0
 
 # Build package
 python3 -m build
