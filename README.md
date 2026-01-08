@@ -504,18 +504,21 @@ You can configure the application using environment variables:
 - `INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS` - Delay between pricing requests in milliseconds (default: 50)
 - `INSTANCEPEDIA_SPOT_BATCH_SIZE` - Number of instance types per spot price API call (default: 50)
 - `INSTANCEPEDIA_UI_UPDATE_THROTTLE` - Update TUI every N pricing updates (default: 10)
+- `INSTANCEPEDIA_MAX_POOL_CONNECTIONS` - Max HTTP connections in the connection pool (default: 50)
 
 **Performance Tuning Tips:**
-- **Faster networks**: Increase `PRICING_CONCURRENCY` to 15-20 and reduce `PRICING_REQUEST_DELAY_MS` to 25-30
+- **Faster networks**: Increase `PRICING_CONCURRENCY` to 15-20, reduce `PRICING_REQUEST_DELAY_MS` to 25-30, and increase `MAX_POOL_CONNECTIONS` to 100
 - **Rate limit issues**: Decrease `PRICING_CONCURRENCY` to 5 and increase `PRICING_REQUEST_DELAY_MS` to 100
 - **Large instance lists**: Increase `UI_UPDATE_THROTTLE` to 20-50 to reduce UI flicker
 - **CLI scripting**: Increase `CLI_PRICING_CONCURRENCY` to 10 for faster batch operations
+- **High concurrency**: Increase `MAX_POOL_CONNECTIONS` to match or exceed your concurrency settings
 
 **Examples:**
 ```bash
-# Fast network configuration
+# Fast network configuration with connection pooling
 export INSTANCEPEDIA_PRICING_CONCURRENCY=20
 export INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS=30
+export INSTANCEPEDIA_MAX_POOL_CONNECTIONS=100
 
 # Conservative configuration for rate-limited accounts
 export INSTANCEPEDIA_PRICING_CONCURRENCY=5

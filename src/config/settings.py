@@ -28,4 +28,5 @@ class Settings(BaseSettings):
     pricing_request_delay_ms: int = 50  # Delay between requests in milliseconds
     spot_batch_size: int = 50  # Number of instance types per spot price API call
     ui_update_throttle: int = 10  # Update UI every N pricing updates
+    max_pool_connections: int = 50  # Max connections in the HTTP connection pool
 
