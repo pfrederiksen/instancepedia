@@ -101,19 +101,30 @@ class InstanceDetail(Screen):
             # GPU/Accelerators
             if inst.gpu_info:
                 lines.append("GPU/Accelerators")
-                lines.append(f"  • Total GPUs:        {inst.gpu_info.total_gpu_count}")
 
-                # Show details for each GPU device type
-                for gpu_device in inst.gpu_info.gpus:
-                    gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
-                    lines.append(f"  • {gpu_name}:")
-                    lines.append(f"      Count:           {gpu_device.count}")
-                    if gpu_device.memory_in_gb:
-                        lines.append(f"      Memory per GPU:  {gpu_device.memory_in_gb:.0f} GB")
+                # Check if this is a fractional/shared GPU instance
+                if inst.gpu_info.is_fractional_gpu:
+                    lines.append(f"  • Type:              Shared/Fractional GPU")
+                    for gpu_device in inst.gpu_info.gpus:
+                        gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
+                        lines.append(f"  • GPU:               {gpu_name}")
+                        if gpu_device.memory_in_gb:
+                            lines.append(f"  • GPU Memory:        {gpu_device.memory_in_gb:.1f} GB")
+                    lines.append(f"  • Note:              Fractional GPU allocation (e.g., g6f instances)")
+                else:
+                    lines.append(f"  • Total GPUs:        {inst.gpu_info.total_gpu_count}")
 
-                # Total GPU memory if available
-                if inst.gpu_info.total_gpu_memory_in_gb:
-                    lines.append(f"  • Total GPU Memory:  {inst.gpu_info.total_gpu_memory_in_gb:.0f} GB")
+                    # Show details for each GPU device type
+                    for gpu_device in inst.gpu_info.gpus:
+                        gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
+                        lines.append(f"  • {gpu_name}:")
+                        lines.append(f"      Count:           {gpu_device.count}")
+                        if gpu_device.memory_in_gb:
+                            lines.append(f"      Memory per GPU:  {gpu_device.memory_in_gb:.0f} GB")
+
+                    # Total GPU memory if available
+                    if inst.gpu_info.total_gpu_memory_in_gb:
+                        lines.append(f"  • Total GPU Memory:  {inst.gpu_info.total_gpu_memory_in_gb:.0f} GB")
                 lines.append("")
 
             # Network

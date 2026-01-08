@@ -109,6 +109,30 @@ class GpuInfo:
             return None
         return self.total_gpu_memory_in_mib / 1024.0
 
+    @property
+    def is_fractional_gpu(self) -> bool:
+        """Check if this is a fractional/shared GPU instance (count=0 but has memory)"""
+        return self.total_gpu_count == 0 and self.total_gpu_memory_in_mib is not None and self.total_gpu_memory_in_mib > 0
+
+    @property
+    def gpu_description(self) -> str:
+        """Get human-readable GPU description"""
+        if self.is_fractional_gpu:
+            # Fractional/shared GPU (e.g., g6f instances)
+            gpu_name = self.gpus[0].name if self.gpus else "Unknown"
+            memory_gb = self.total_gpu_memory_in_gb
+            return f"Shared {gpu_name} ({memory_gb:.1f}GB)"
+        elif self.total_gpu_count > 0:
+            # Full GPUs
+            gpu_name = self.gpus[0].name if self.gpus else "Unknown"
+            count = self.total_gpu_count
+            memory_gb = self.total_gpu_memory_in_gb
+            if count == 1:
+                return f"1x {gpu_name} ({memory_gb:.1f}GB)"
+            else:
+                return f"{count}x {gpu_name} ({memory_gb:.1f}GB)"
+        return "No GPU"
+
 
 @dataclass
 class PricingInfo:

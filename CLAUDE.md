@@ -370,6 +370,14 @@ Models use Pydantic v2 for validation and serialization.
 - `generation_label` property - Formats generation as human-readable label (e.g., "6th gen", "3rd gen")
 - Uses regex pattern matching to extract generation: `[a-z]+(\d+)`
 
+**GpuInfo enhancements**:
+- `is_fractional_gpu` property - Detects fractional/shared GPU instances (count=0 but memory>0)
+- `gpu_description` property - Human-readable GPU description
+- Handles AWS API quirk where g6f instances report Count=0 despite having GPU memory
+- Fractional GPUs displayed as "Shared {gpu_name} ({memory}GB)"
+- Regular GPUs displayed as "{count}x {gpu_name} ({memory}GB)"
+- Special handling in TUI and CLI output for fractional GPU instances
+
 **PricingInfo enhancements**:
 - `savings_plan_1yr_no_upfront` - 1-year savings plan pricing (no upfront payment)
 - `savings_plan_3yr_no_upfront` - 3-year savings plan pricing (no upfront payment)
