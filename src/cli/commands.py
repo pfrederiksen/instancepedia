@@ -147,9 +147,13 @@ def cmd_show(args) -> int:
                 max_retries=3
             )
             spot = pricing_service.get_spot_price(instance.instance_type, args.region)
+            savings_1yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "1yr")
+            savings_3yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "3yr")
             instance.pricing = PricingInfo(
                 on_demand_price=on_demand,
-                spot_price=spot
+                spot_price=spot,
+                savings_plan_1yr_no_upfront=savings_1yr,
+                savings_plan_3yr_no_upfront=savings_3yr
             )
         
         # Output
@@ -203,9 +207,13 @@ def cmd_pricing(args) -> int:
             max_retries=5
         )
         spot = pricing_service.get_spot_price(instance.instance_type, args.region)
+        savings_1yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "1yr")
+        savings_3yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "3yr")
         instance.pricing = PricingInfo(
             on_demand_price=on_demand,
-            spot_price=spot
+            spot_price=spot,
+            savings_plan_1yr_no_upfront=savings_1yr,
+            savings_plan_3yr_no_upfront=savings_3yr
         )
         
         # Output

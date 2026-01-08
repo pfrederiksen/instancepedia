@@ -384,7 +384,9 @@ Models use Pydantic v2 for validation and serialization.
 - `savings_plan_3yr_no_upfront` - 3-year savings plan pricing (no upfront payment)
 - `format_savings_plan_1yr()` / `format_savings_plan_3yr()` - Format savings plan prices
 - `calculate_savings_percentage(price_type)` - Calculate savings vs on-demand (supports "1yr", "3yr", "spot")
-- Savings plans pricing will show "N/A" until fetching is implemented
+- Savings plans pricing fetched from AWS Pricing API (Reserved terms with "No Upfront" purchase option)
+- TUI: Fetched in background when viewing instance detail (like spot pricing)
+- CLI: Fetched with `--include-pricing` flag in `show` and `pricing` commands
 
 ### Configuration
 
