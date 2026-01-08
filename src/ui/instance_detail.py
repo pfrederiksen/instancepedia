@@ -53,8 +53,8 @@ class InstanceDetail(Screen):
         self.refresh()
         # Use set_timer to render details after a brief delay to ensure widgets are ready
         self.set_timer(0.2, self._render_details)
-        # Fetch spot price if not already loaded
-        self._fetch_spot_price_if_needed()
+        # Fetch spot price and savings plans if not already loaded
+        self._fetch_pricing_if_needed()
 
     def _render_details(self) -> None:
         """Render the detailed information"""
@@ -285,50 +285,63 @@ class InstanceDetail(Screen):
                 # Widget may not exist yet or screen may be transitioning
                 logger.debug(f"Failed to update error message in detail text widget: {inner_e}")
 
-    def _fetch_spot_price_if_needed(self) -> None:
-        """Fetch spot price for this instance if not already loaded"""
+    def _fetch_pricing_if_needed(self) -> None:
+        """Fetch spot price and savings plans for this instance if not already loaded"""
         inst = self.instance_type
 
-        # Only fetch if we have on-demand price but no spot price yet
-        if inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.spot_price is None:
+        # Check what pricing data we need to fetch
+        needs_spot = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.spot_price is None
+        needs_savings_1yr = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.savings_plan_1yr_no_upfront is None
+        needs_savings_3yr = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.savings_plan_3yr_no_upfront is None
 
-            async def fetch_spot_price():
-                """Async worker to fetch spot price"""
+        if needs_spot or needs_savings_1yr or needs_savings_3yr:
+
+            async def fetch_pricing():
+                """Async worker to fetch spot price and savings plans"""
                 try:
                     # Get region and settings from app
                     if hasattr(self.app, 'current_region') and self.app.current_region:
                         region = self.app.current_region
                         profile = self.app.settings.aws_profile if hasattr(self.app, 'settings') else None
 
-                        DebugLog.log(f"Fetching spot price for {inst.instance_type} in {region}")
+                        DebugLog.log(f"Fetching additional pricing for {inst.instance_type} in {region}")
                         async_client = AsyncAWSClient(region, profile)
                         pricing_service = AsyncPricingService(async_client)
-                        spot_price = await pricing_service.get_spot_price(inst.instance_type, region)
 
-                        # Update the instance pricing
-                        if inst.pricing:
-                            inst.pricing.spot_price = spot_price
-                        else:
-                            from src.models.instance_type import PricingInfo
-                            inst.pricing = PricingInfo(
-                                on_demand_price=None,
-                                spot_price=spot_price
-                            )
+                        # Fetch spot price if needed
+                        if needs_spot:
+                            spot_price = await pricing_service.get_spot_price(inst.instance_type, region)
+                            if inst.pricing:
+                                inst.pricing.spot_price = spot_price
+                            DebugLog.log(f"Spot price for {inst.instance_type}: {spot_price}")
+
+                        # Fetch 1-year savings plan if needed
+                        if needs_savings_1yr:
+                            savings_1yr = await pricing_service.get_savings_plan_price(inst.instance_type, region, "1yr")
+                            if inst.pricing:
+                                inst.pricing.savings_plan_1yr_no_upfront = savings_1yr
+                            DebugLog.log(f"1-year savings plan for {inst.instance_type}: {savings_1yr}")
+
+                        # Fetch 3-year savings plan if needed
+                        if needs_savings_3yr:
+                            savings_3yr = await pricing_service.get_savings_plan_price(inst.instance_type, region, "3yr")
+                            if inst.pricing:
+                                inst.pricing.savings_plan_3yr_no_upfront = savings_3yr
+                            DebugLog.log(f"3-year savings plan for {inst.instance_type}: {savings_3yr}")
 
                         # Update the UI (we're already on the main thread in async context)
                         try:
                             self._render_details()
                         except Exception as e:
-                            DebugLog.log(f"Error updating UI after spot price fetch: {e}")
+                            DebugLog.log(f"Error updating UI after pricing fetch: {e}")
 
-                        DebugLog.log(f"Spot price for {inst.instance_type}: {spot_price}")
                     else:
-                        DebugLog.log("Cannot fetch spot price: region not set")
+                        DebugLog.log("Cannot fetch pricing: region not set")
                 except Exception as e:
-                    DebugLog.log(f"Error fetching spot price for {inst.instance_type}: {e}")
+                    DebugLog.log(f"Error fetching pricing for {inst.instance_type}: {e}")
 
             # Run async fetch as a worker
-            self.app.run_worker(fetch_spot_price, exit_on_error=False)
+            self.app.run_worker(fetch_pricing, exit_on_error=False)
 
     def action_back(self) -> None:
         """Go back to instance list"""

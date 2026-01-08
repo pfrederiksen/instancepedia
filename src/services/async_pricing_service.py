@@ -241,6 +241,161 @@ class AsyncPricingService:
                 self.cache.set(region, instance_type, 'spot', None)
             return None
 
+    async def get_savings_plan_price(
+        self,
+        instance_type: str,
+        region: str,
+        lease_length: str = "1yr",
+        max_retries: int = 3,
+        cache_hit_callback=None
+    ) -> Optional[float]:
+        """
+        Get Savings Plan price for an instance type (Reserved pricing with No Upfront)
+
+        Args:
+            instance_type: EC2 instance type (e.g., 't3.micro')
+            region: AWS region code (e.g., 'us-east-1')
+            lease_length: "1yr" or "3yr"
+            max_retries: Maximum number of retries for rate limiting
+            cache_hit_callback: Optional callback() called when cache hit occurs
+
+        Returns:
+            Savings Plan price per hour in USD, or None if not available
+        """
+        # Check cache first
+        cache_key = f"savings_{lease_length}"
+        if self.cache:
+            cached_price = self.cache.get(region, instance_type, cache_key)
+            if cached_price is not None:
+                logger.debug(f"Using cached {lease_length} savings plan price for {instance_type}: ${cached_price}/hr")
+                if cache_hit_callback:
+                    cache_hit_callback()
+                return cached_price
+
+        # Map lease length to AWS API format
+        lease_map = {
+            "1yr": "1yr",
+            "3yr": "3yr"
+        }
+
+        api_lease = lease_map.get(lease_length)
+        if not api_lease:
+            logger.error(f"Invalid lease length: {lease_length}")
+            return None
+
+        pricing_region = REGION_MAP.get(region)
+        if not pricing_region:
+            DebugLog.log(f"Warning: Region {region} not in pricing region map")
+            if self.cache:
+                self.cache.set(region, instance_type, cache_key, None)
+            return None
+
+        # Cache miss - fetch from AWS
+        for attempt in range(max_retries + 1):
+            try:
+                # Query for Reserved pricing with No Upfront
+                filters = [
+                    {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
+                    {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
+                    {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
+                    {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
+                    {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
+                    {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'},
+                ]
+
+                DebugLog.log(f"Querying Pricing API for {lease_length} savings plan: {instance_type} in {pricing_region}")
+                async with self.aws_client.get_pricing_client() as pricing:
+                    response = await pricing.get_products(
+                        ServiceCode='AmazonEC2',
+                        Filters=filters,
+                        MaxResults=10
+                    )
+
+                if not response.get('PriceList'):
+                    DebugLog.log(f"No PriceList returned for savings plan {instance_type} in {pricing_region}")
+                    if self.cache:
+                        self.cache.set(region, instance_type, cache_key, None)
+                    return None
+
+                # Parse results and find Reserved terms
+                best_price = None
+
+                for price_list_item in response['PriceList']:
+                    price_data = json.loads(price_list_item)
+
+                    # Look for Reserved terms
+                    terms = price_data.get('terms', {})
+                    reserved = terms.get('Reserved', {})
+
+                    if not reserved:
+                        continue
+
+                    # Iterate through all reserved offerings
+                    for term_key, term_data in reserved.items():
+                        term_attributes = term_data.get('termAttributes', {})
+                        lease_contract_length = term_attributes.get('LeaseContractLength', '')
+                        purchase_option = term_attributes.get('PurchaseOption', '')
+
+                        # Match our desired lease length and "No Upfront" option
+                        if lease_contract_length == api_lease and purchase_option == 'No Upfront':
+                            price_dimensions = term_data.get('priceDimensions', {})
+
+                            for dimension_key, dimension_data in price_dimensions.items():
+                                unit = dimension_data.get('unit', '')
+                                price_per_unit = dimension_data.get('pricePerUnit', {})
+                                usd_price = price_per_unit.get('USD')
+
+                                # Look for hourly pricing
+                                if ('Hrs' in unit or 'Hr' in unit) and usd_price:
+                                    try:
+                                        temp_price = float(Decimal(usd_price))
+                                        if temp_price > 0 and (best_price is None or temp_price < best_price):
+                                            best_price = temp_price
+                                    except (ValueError, TypeError) as e:
+                                        DebugLog.log(f"Error parsing savings plan price '{usd_price}': {e}")
+                                        continue
+
+                if best_price is not None:
+                    DebugLog.log(f"Found {lease_length} savings plan price for {instance_type}: ${best_price}/hr")
+                    if self.cache:
+                        self.cache.set(region, instance_type, cache_key, best_price)
+                    return best_price
+
+                DebugLog.log(f"No {lease_length} savings plan pricing found for {instance_type}")
+                if self.cache:
+                    self.cache.set(region, instance_type, cache_key, None)
+                return None
+
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "Unknown")
+
+                # Handle rate limiting with retry
+                if error_code == "Throttling" or error_code == "ThrottlingException":
+                    if attempt < max_retries:
+                        wait_time = (2 ** attempt) + (attempt * 0.5)
+                        DebugLog.log(f"Rate limited for savings plan {instance_type}, retrying in {wait_time:.1f}s")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        DebugLog.log(f"Rate limited for savings plan {instance_type} after {max_retries} retries")
+                        return None
+
+                DebugLog.log(f"Pricing API error for savings plan {instance_type}: {error_code}")
+                return None
+            except Exception as e:
+                if attempt < max_retries:
+                    wait_time = 2 ** attempt
+                    DebugLog.log(f"Exception for savings plan {instance_type}, retrying in {wait_time}s")
+                    await asyncio.sleep(wait_time)
+                    continue
+                DebugLog.log(f"Pricing API exception for savings plan {instance_type}: {str(e)}")
+                return None
+
+        # All retries failed
+        if self.cache:
+            self.cache.set(region, instance_type, cache_key, None)
+        return None
+
     async def get_on_demand_prices_batch(
         self,
         instance_types: List[str],
