@@ -302,38 +302,47 @@ class InstanceDetail(Screen):
                     # Get region and settings from app
                     if hasattr(self.app, 'current_region') and self.app.current_region:
                         region = self.app.current_region
-                        profile = self.app.settings.aws_profile if hasattr(self.app, 'settings') else None
+                        settings = self.app.settings if hasattr(self.app, 'settings') else None
 
                         DebugLog.log(f"Fetching additional pricing for {inst.instance_type} in {region}")
-                        async_client = AsyncAWSClient(region, profile)
-                        pricing_service = AsyncPricingService(async_client)
 
-                        # Fetch spot price if needed
-                        if needs_spot:
-                            spot_price = await pricing_service.get_spot_price(inst.instance_type, region)
-                            if inst.pricing:
-                                inst.pricing.spot_price = spot_price
-                            DebugLog.log(f"Spot price for {inst.instance_type}: {spot_price}")
+                        # Use async context manager for proper resource management
+                        async with AsyncAWSClient(
+                            region,
+                            settings.aws_profile if settings else None,
+                            connect_timeout=settings.aws_connect_timeout if settings else 10,
+                            read_timeout=settings.aws_read_timeout if settings else 60,
+                            pricing_timeout=settings.pricing_read_timeout if settings else 90,
+                            max_pool_connections=settings.max_pool_connections if settings else 50
+                        ) as async_client:
+                            pricing_service = AsyncPricingService(async_client, settings=settings)
 
-                        # Fetch 1-year savings plan if needed
-                        if needs_savings_1yr:
-                            savings_1yr = await pricing_service.get_savings_plan_price(inst.instance_type, region, "1yr")
-                            if inst.pricing:
-                                inst.pricing.savings_plan_1yr_no_upfront = savings_1yr
-                            DebugLog.log(f"1-year savings plan for {inst.instance_type}: {savings_1yr}")
+                            # Fetch spot price if needed
+                            if needs_spot:
+                                spot_price = await pricing_service.get_spot_price(inst.instance_type, region)
+                                if inst.pricing:
+                                    inst.pricing.spot_price = spot_price
+                                DebugLog.log(f"Spot price for {inst.instance_type}: {spot_price}")
 
-                        # Fetch 3-year savings plan if needed
-                        if needs_savings_3yr:
-                            savings_3yr = await pricing_service.get_savings_plan_price(inst.instance_type, region, "3yr")
-                            if inst.pricing:
-                                inst.pricing.savings_plan_3yr_no_upfront = savings_3yr
-                            DebugLog.log(f"3-year savings plan for {inst.instance_type}: {savings_3yr}")
+                            # Fetch 1-year savings plan if needed
+                            if needs_savings_1yr:
+                                savings_1yr = await pricing_service.get_savings_plan_price(inst.instance_type, region, "1yr")
+                                if inst.pricing:
+                                    inst.pricing.savings_plan_1yr_no_upfront = savings_1yr
+                                DebugLog.log(f"1-year savings plan for {inst.instance_type}: {savings_1yr}")
 
-                        # Update the UI (we're already on the main thread in async context)
-                        try:
-                            self._render_details()
-                        except Exception as e:
-                            DebugLog.log(f"Error updating UI after pricing fetch: {e}")
+                            # Fetch 3-year savings plan if needed
+                            if needs_savings_3yr:
+                                savings_3yr = await pricing_service.get_savings_plan_price(inst.instance_type, region, "3yr")
+                                if inst.pricing:
+                                    inst.pricing.savings_plan_3yr_no_upfront = savings_3yr
+                                DebugLog.log(f"3-year savings plan for {inst.instance_type}: {savings_3yr}")
+
+                            # Update the UI (we're already on the main thread in async context)
+                            try:
+                                self._render_details()
+                            except Exception as e:
+                                DebugLog.log(f"Error updating UI after pricing fetch: {e}")
 
                     else:
                         DebugLog.log("Cannot fetch pricing: region not set")

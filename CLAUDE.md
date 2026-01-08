@@ -452,6 +452,7 @@ Models use Pydantic v2 for validation and serialization.
 - `INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS` - Delay between requests in milliseconds (default: 50)
 - `INSTANCEPEDIA_SPOT_BATCH_SIZE` - Instance types per spot price API call (default: 50)
 - `INSTANCEPEDIA_UI_UPDATE_THROTTLE` - Update TUI every N pricing updates (default: 10)
+- `INSTANCEPEDIA_MAX_POOL_CONNECTIONS` - Max connections in HTTP connection pool (default: 50)
 
 All settings are configurable via environment variables with the `INSTANCEPEDIA_` prefix.
 
@@ -502,10 +503,57 @@ with ThreadPoolExecutor(max_workers=settings.cli_pricing_concurrency) as executo
 ```
 
 **Tuning Recommendations:**
-- **Fast network, no rate limits**: Increase concurrency to 15-20, reduce delay to 25-30ms
+- **Fast network, no rate limits**: Increase concurrency to 15-20, reduce delay to 25-30ms, increase pool connections to 100
 - **Rate-limited account**: Decrease concurrency to 5, increase delay to 100ms
 - **Large instance lists (500+)**: Increase UI throttle to 20-50
 - **CI/CD scripts**: Increase CLI concurrency to 10 for faster batch operations
+- **High concurrency**: Set max_pool_connections ≥ pricing_concurrency for optimal performance
+
+### Async Improvements and Connection Pooling
+
+The async AWS client implementation uses connection pooling and proper resource management for improved performance and reliability:
+
+**Connection Pooling:**
+- `AsyncAWSClient` maintains a pool of HTTP connections (default: 50, configurable via `max_pool_connections`)
+- Client instances are reused across multiple API calls instead of creating new ones each time
+- Uses `asyncio.Lock` to ensure thread-safe client initialization and cleanup
+- Pool size should match or exceed concurrency settings for optimal performance
+
+**Resource Management:**
+- `AsyncAWSClient` implements async context manager protocol (`__aenter__`/`__aexit__`)
+- Proper cleanup with `close()` method that closes all client connections
+- All pricing workers use `async with AsyncAWSClient(...)` for automatic resource cleanup
+- On error, clients are closed and recreated to prevent connection leaks
+
+**Client Reuse Pattern:**
+```python
+# In app.py - proper resource management
+async with AsyncAWSClient(
+    region,
+    profile,
+    connect_timeout=settings.aws_connect_timeout,
+    read_timeout=settings.aws_read_timeout,
+    pricing_timeout=settings.pricing_read_timeout,
+    max_pool_connections=settings.max_pool_connections
+) as async_client:
+    pricing_service = AsyncPricingService(async_client, settings=settings)
+    # Clients are reused for all pricing requests
+    await pricing_service.get_on_demand_prices_batch(...)
+    await pricing_service.get_on_demand_prices_batch(...)  # Reuses same client
+# Context manager ensures proper cleanup
+```
+
+**Benefits:**
+- **Performance**: Reusing connections eliminates handshake overhead
+- **Reliability**: Automatic cleanup prevents connection leaks
+- **Scalability**: Connection pooling handles high concurrency efficiently
+- **Resource efficiency**: Fewer open connections to AWS APIs
+
+**Implementation Details** (`src/services/async_aws_client.py`):
+- EC2 and Pricing clients are lazy-initialized and cached
+- `get_ec2_client()` and `get_pricing_client()` are async context managers that yield cached clients
+- On error, cached clients are closed and will be recreated on next request
+- All initialization is protected by `asyncio.Lock` for thread safety
 
 ### Pricing API Region Mapping
 
