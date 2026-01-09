@@ -165,6 +165,28 @@ def test_service_method_error(service):
 
 Instancepedia is an EC2 Instance Type Browser with both TUI (Terminal User Interface) and CLI (Command-Line Interface) modes. It provides detailed EC2 instance information, pricing (on-demand and spot), and free tier eligibility indicators.
 
+### Cost Philosophy - IMPORTANT
+
+**All instancepedia operations MUST be free.** This tool should never incur AWS charges for users.
+
+**Free AWS APIs used:**
+- `ec2:DescribeInstanceTypes` - Instance specifications (free)
+- `ec2:DescribeSpotPriceHistory` - Spot pricing (free)
+- `pricing:GetProducts` - On-demand/RI/Savings Plan pricing (free)
+- `ec2:DescribeRegions` - Available regions (free)
+
+**APIs/Services to AVOID:**
+- CloudWatch metrics (costs money for enhanced monitoring)
+- AWS Compute Optimizer (free itself, but requires running instances - wrong use case)
+- Any API that requires provisioned resources
+- Any API with per-request charges
+
+**When adding new features, verify:**
+1. The AWS API is free tier eligible with no usage limits
+2. No provisioned resources are required
+3. The feature works for users with read-only AWS access
+4. Document any new APIs in this section
+
 ### Documentation Structure
 
 The project has comprehensive documentation for both users and developers:
