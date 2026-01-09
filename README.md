@@ -228,6 +228,53 @@ instancepedia list --region us-east-1 --max-price 0.05 --include-pricing
 instancepedia list --region us-east-1 --include-pricing
 ```
 
+#### Combined Filter Examples
+
+Filters can be combined for precise instance selection:
+
+```bash
+# Find budget-friendly compute instances
+# AMD processors (cheaper than Intel), moderate network, under $0.10/hr
+instancepedia list --region us-east-1 \
+  --processor-family amd \
+  --network-performance moderate \
+  --max-price 0.10 \
+  --include-pricing
+
+# High-performance database instances
+# Memory-optimized, high network, NVMe storage
+instancepedia list --region us-east-1 \
+  --family r6i \
+  --network-performance very-high \
+  --storage-type instance-store \
+  --nvme required
+
+# Cost-effective ARM development instances
+# Graviton processors, burstable, small/medium sizes
+instancepedia list --region us-east-1 \
+  --processor-family graviton \
+  --family t4g \
+  --max-price 0.05 \
+  --include-pricing
+
+# GPU instances for machine learning
+# All GPU families in a specific price range
+instancepedia list --region us-east-1 \
+  --search "g4dn\|g5\|p3\|p4" \
+  --min-price 0.50 \
+  --max-price 5.00 \
+  --include-pricing
+
+# Storage-optimized instances with local NVMe
+instancepedia list --region us-east-1 \
+  --storage-type instance-store \
+  --nvme required \
+  --network-performance high
+
+# Free tier eligible for testing
+instancepedia list --region us-east-1 --free-tier-only --include-pricing
+```
+
 #### Show Instance Details
 
 ```bash
@@ -549,24 +596,51 @@ You can configure the application using environment variables:
 - `INSTANCEPEDIA_UI_UPDATE_THROTTLE` - Update TUI every N pricing updates (default: 10)
 - `INSTANCEPEDIA_MAX_POOL_CONNECTIONS` - Max HTTP connections in the connection pool (default: 50)
 
-**Performance Tuning Tips:**
-- **Faster networks**: Increase `PRICING_CONCURRENCY` to 15-20, reduce `PRICING_REQUEST_DELAY_MS` to 25-30, and increase `MAX_POOL_CONNECTIONS` to 100
-- **Rate limit issues**: Decrease `PRICING_CONCURRENCY` to 5 and increase `PRICING_REQUEST_DELAY_MS` to 100
-- **Large instance lists**: Increase `UI_UPDATE_THROTTLE` to 20-50 to reduce UI flicker
-- **CLI scripting**: Increase `CLI_PRICING_CONCURRENCY` to 10 for faster batch operations
-- **High concurrency**: Increase `MAX_POOL_CONNECTIONS` to match or exceed your concurrency settings
+**Performance Tuning Guide:**
 
-**Examples:**
+| Scenario | Concurrency | Delay (ms) | Pool Connections | Notes |
+|----------|-------------|------------|------------------|-------|
+| Fast network | 15-20 | 25-30 | 100 | Maximum throughput |
+| Normal network | 10 (default) | 50 (default) | 50 (default) | Balanced |
+| Slow network | 5 | 100 | 25 | Reduce timeouts |
+| Rate-limited | 3-5 | 150-200 | 25 | Avoid throttling |
+| CI/CD pipelines | 10 | 30 | 50 | Fast but stable |
+| Large regions (500+ instances) | 10 | 50 | 50 | Increase UI throttle to 30 |
+
+**Scenario-Based Examples:**
+
 ```bash
-# Fast network configuration with connection pooling
+# Fast network - maximize throughput
 export INSTANCEPEDIA_PRICING_CONCURRENCY=20
 export INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS=30
 export INSTANCEPEDIA_MAX_POOL_CONNECTIONS=100
 
-# Conservative configuration for rate-limited accounts
+# Rate-limited account - avoid throttling errors
 export INSTANCEPEDIA_PRICING_CONCURRENCY=5
-export INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS=100
+export INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS=150
+export INSTANCEPEDIA_AWS_READ_TIMEOUT=120
+
+# CI/CD pipeline - fast and reliable
+export INSTANCEPEDIA_CLI_PRICING_CONCURRENCY=10
+export INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS=30
+export INSTANCEPEDIA_AWS_CONNECT_TIMEOUT=5  # Fail fast on connection issues
+
+# Large region with many instances - reduce UI flicker
+export INSTANCEPEDIA_UI_UPDATE_THROTTLE=30
+export INSTANCEPEDIA_PRICING_CONCURRENCY=10
+
+# Slow/unreliable network - increase timeouts
+export INSTANCEPEDIA_AWS_CONNECT_TIMEOUT=30
+export INSTANCEPEDIA_AWS_READ_TIMEOUT=120
+export INSTANCEPEDIA_PRICING_READ_TIMEOUT=180
+export INSTANCEPEDIA_PRICING_CONCURRENCY=5
 ```
+
+**Diagnosing Performance Issues:**
+- If you see `ThrottlingException` errors, reduce concurrency and increase delay
+- If pricing loads slowly, try increasing concurrency (if not rate-limited)
+- If TUI flickers during pricing load, increase `UI_UPDATE_THROTTLE`
+- Use `--debug` flag to see timing and error details
 
 ## IAM Permissions
 
