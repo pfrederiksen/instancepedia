@@ -678,7 +678,7 @@ with ThreadPoolExecutor(max_workers=settings.cli_pricing_concurrency) as executo
 
 ### Async Improvements and Connection Pooling
 
-The async AWS client implementation uses connection pooling and proper resource management for improved performance and reliability:
+The async AWS client implementation uses connection pooling, `AsyncExitStack`, and multi-layered cleanup for proper resource management:
 
 **Connection Pooling:**
 - `AsyncAWSClient` maintains a pool of HTTP connections (default: 50, configurable via `max_pool_connections`)
@@ -686,12 +686,23 @@ The async AWS client implementation uses connection pooling and proper resource 
 - Uses `asyncio.Lock` to ensure thread-safe client initialization and cleanup
 - Pool size should match or exceed concurrency settings for optimal performance
 
-**Resource Management:**
-- `AsyncAWSClient` implements async context manager protocol (`__aenter__`/`__aexit__`)
-- Proper cleanup with `close()` method that closes all client connections
+**Resource Management with AsyncExitStack:**
+- `AsyncAWSClient` uses `AsyncExitStack` for proper aioboto3 client lifecycle management
+- Clients are registered via `self._exit_stack.enter_async_context(client_cm)` instead of manual `__aenter__`/`__aexit__` calls
+- The exit stack ensures proper cleanup order and handles exceptions correctly
 - All pricing workers use `async with AsyncAWSClient(...)` for automatic resource cleanup
-- On error, clients are closed and recreated to prevent connection leaks
-- Cleanup is cancellation-safe using `asyncio.create_task()` for independent cleanup tasks
+
+**Multi-Layered Cleanup Strategy:**
+The cleanup approach uses multiple layers to ensure no aiohttp warnings occur:
+
+1. **Synchronous cleanup first** - `_close_connectors_sync()` closes TCP connectors and marks sessions as closed BEFORE any async cleanup. This prevents warnings even if async cleanup is cancelled.
+
+2. **AsyncExitStack cleanup** - `await self._exit_stack.aclose()` properly closes all registered clients through their normal async cleanup path.
+
+3. **Global atexit handler** - At interpreter exit, `_cleanup_all_aiohttp_resources()` performs a final sweep:
+   - Closes any registered clients via `weakref.WeakSet` registry
+   - Runs `gc.collect()` to find orphaned aiohttp resources
+   - Closes any unclosed `ClientSession` or `TCPConnector` objects
 
 **Client Reuse Pattern:**
 ```python
@@ -708,28 +719,30 @@ async with AsyncAWSClient(
     # Clients are reused for all pricing requests
     await pricing_service.get_on_demand_prices_batch(...)
     await pricing_service.get_on_demand_prices_batch(...)  # Reuses same client
-# Context manager ensures proper cleanup
+# Context manager ensures proper cleanup (sync first, then async)
 ```
 
 **Benefits:**
+- **No warnings**: Multi-layered cleanup prevents "Unclosed client session" and "Unclosed connector" warnings
 - **Performance**: Reusing connections eliminates handshake overhead
 - **Reliability**: Automatic cleanup prevents connection leaks
 - **Scalability**: Connection pooling handles high concurrency efficiently
-- **Resource efficiency**: Fewer open connections to AWS APIs
+- **Cancellation-safe**: Sync cleanup happens before async, so cancellation doesn't cause warnings
 
 **Implementation Details** (`src/services/async_aws_client.py`):
 - EC2 and Pricing clients are lazy-initialized and cached
 - `get_ec2_client()` and `get_pricing_client()` are async context managers that yield cached clients
-- On error, cached clients are closed and will be recreated on next request
+- On error, cached clients are closed via `_close_single_client_sync()` and will be recreated on next request
 - All initialization is protected by `asyncio.Lock` for thread safety
+- Global `_active_clients: weakref.WeakSet` tracks all client instances for cleanup
+- `atexit.register(_cleanup_all_aiohttp_resources)` ensures cleanup at interpreter exit
 
 **Cleanup on Cancellation:**
-- When workers are cancelled (e.g., user quits TUI during pricing fetch), proper cleanup is critical
-- `close()` method spawns cleanup tasks via `asyncio.create_task()` that continue even if caller is cancelled
-- `_close_client_internal()` explicitly closes the aiohttp connector and http session before calling `__aexit__`
+- When workers are cancelled (e.g., user quits TUI during pricing fetch), `__aexit__` is called
+- `_close_connectors_sync()` runs FIRST to close connectors synchronously - this prevents all warnings
+- Then async cleanup via `close()` is attempted (may be cancelled, but that's OK)
+- The sync cleanup marks `http_session._closed = True` to prevent `__del__` warnings
 - Multiple attribute paths are tried to find the http session (aiobotocore uses different internal structures)
-- Includes 250ms grace period per aiohttp documentation for graceful TCP connection shutdown
-- Cleanup tasks are gathered with timeout (1s) and `return_exceptions=True` for resilience
 
 ### Pricing API Region Mapping
 

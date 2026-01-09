@@ -610,14 +610,67 @@ class InstancepediaApp(App):
         self._shutting_down = True
 
         # Close async client to prevent unclosed session warnings
+        # Use synchronous cleanup since the event loop may stop before async tasks complete
         if self._async_client is not None:
             try:
-                import asyncio
-                # Schedule cleanup on event loop
-                asyncio.create_task(self._async_client.close())
-                DebugLog.log("Async client cleanup scheduled")
+                self._close_async_client_sync()
+                DebugLog.log("Async client cleanup completed synchronously")
             except Exception as e:
-                DebugLog.log(f"Error scheduling async client cleanup: {e}")
+                DebugLog.log(f"Error during sync async client cleanup: {e}")
+
+    def _close_async_client_sync(self) -> None:
+        """Synchronously close the async client's underlying connections.
+
+        This is used during app exit when we can't rely on async cleanup
+        completing before the event loop stops.
+        """
+        if self._async_client is None:
+            return
+
+        client = self._async_client
+        self._async_client = None
+
+        # Close EC2 client's underlying connection
+        if client._ec2_client is not None:
+            try:
+                self._close_aioboto3_client_sync(client._ec2_client)
+            except Exception as e:
+                DebugLog.log(f"Error closing EC2 client: {e}")
+
+        # Close Pricing client's underlying connection
+        if client._pricing_client is not None:
+            try:
+                self._close_aioboto3_client_sync(client._pricing_client)
+            except Exception as e:
+                DebugLog.log(f"Error closing Pricing client: {e}")
+
+    def _close_aioboto3_client_sync(self, client) -> None:
+        """Synchronously close an aioboto3 client's underlying aiohttp connector and session.
+
+        This directly closes the TCP connector and marks the session as closed
+        to prevent unclosed connection warnings.
+        """
+        try:
+            # Try to get the http session from the endpoint
+            http_session = None
+
+            if hasattr(client, '_endpoint'):
+                endpoint = client._endpoint
+                if hasattr(endpoint, 'http_session'):
+                    http_session = endpoint.http_session
+
+            if http_session is not None:
+                # Close the connector synchronously - this is the key step
+                connector = getattr(http_session, '_connector', None) or getattr(http_session, 'connector', None)
+                if connector is not None and not getattr(connector, 'closed', True):
+                    connector.close()
+                    DebugLog.log("Closed aiohttp connector synchronously")
+                # Mark session as closed to prevent __del__ warning
+                if hasattr(http_session, '_closed'):
+                    http_session._closed = True
+                    DebugLog.log("Marked aiohttp session as closed")
+        except Exception as e:
+            DebugLog.log(f"Error in sync connector close: {e}")
 
         # Cancel the pricing worker if it's running
         if self._pricing_worker is not None:

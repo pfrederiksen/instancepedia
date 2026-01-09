@@ -32,6 +32,7 @@ class InstanceDetail(Screen):
         self.free_tier_service = FreeTierService()
         self.ebs_recommendation_service = EbsRecommendationService()
         self._pricing_worker = None
+        self._async_client = None  # Store reference for cleanup on unmount
 
     def compose(self) -> ComposeResult:
         DebugLog.log("InstanceDetail.compose() called")
@@ -370,15 +371,18 @@ class InstanceDetail(Screen):
 
                         DebugLog.log(f"Fetching additional pricing for {inst.instance_type} in {region}")
 
-                        # Use async with for proper resource management
-                        async with AsyncAWSClient(
+                        # Create client and store reference for cleanup on unmount
+                        self._async_client = AsyncAWSClient(
                             region,
                             settings.aws_profile if settings else None,
                             connect_timeout=settings.aws_connect_timeout if settings else 10,
                             read_timeout=settings.aws_read_timeout if settings else 60,
                             pricing_timeout=settings.pricing_read_timeout if settings else 90,
                             max_pool_connections=settings.max_pool_connections if settings else 50
-                        ) as async_client:
+                        )
+
+                        # Use async with for proper resource management
+                        async with self._async_client as async_client:
                             pricing_service = AsyncPricingService(async_client, settings=settings)
 
                             # Fetch spot price if needed
@@ -463,13 +467,47 @@ class InstanceDetail(Screen):
     def on_unmount(self) -> None:
         """Cleanup when screen is unmounted"""
         # Cancel pricing worker if still running
-        # This will cause the context manager to exit and clean up the async client
         if self._pricing_worker is not None and not self._pricing_worker.is_finished:
             try:
                 self._pricing_worker.cancel()
                 DebugLog.log("Cancelled pricing worker on screen unmount")
             except Exception as e:
                 DebugLog.log(f"Error cancelling pricing worker: {e}")
+
+        # Do synchronous cleanup of the async client to prevent unclosed warnings
+        # This is necessary because the worker cancellation may not complete cleanup
+        if self._async_client is not None:
+            try:
+                self._close_async_client_sync()
+                DebugLog.log("Closed async client synchronously on unmount")
+            except Exception as e:
+                DebugLog.log(f"Error closing async client on unmount: {e}")
+
+    def _close_async_client_sync(self) -> None:
+        """Synchronously close the async client's underlying connections."""
+        if self._async_client is None:
+            return
+
+        client = self._async_client
+        self._async_client = None
+
+        # Close each boto client's underlying aiohttp session
+        for boto_client in [client._ec2_client, client._pricing_client]:
+            if boto_client is not None:
+                try:
+                    if hasattr(boto_client, '_endpoint'):
+                        endpoint = boto_client._endpoint
+                        http_session = getattr(endpoint, 'http_session', None)
+                        if http_session is not None:
+                            # Close the connector
+                            connector = getattr(http_session, '_connector', None) or getattr(http_session, 'connector', None)
+                            if connector is not None and not getattr(connector, 'closed', True):
+                                connector.close()
+                            # Mark session as closed to prevent __del__ warning
+                            if hasattr(http_session, '_closed'):
+                                http_session._closed = True
+                except Exception:
+                    pass  # Best effort cleanup
 
     def action_back(self) -> None:
         """Go back to instance list"""
