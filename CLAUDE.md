@@ -618,6 +618,7 @@ The async AWS client implementation uses connection pooling and proper resource 
 - Proper cleanup with `close()` method that closes all client connections
 - All pricing workers use `async with AsyncAWSClient(...)` for automatic resource cleanup
 - On error, clients are closed and recreated to prevent connection leaks
+- Cleanup is cancellation-safe using `asyncio.create_task()` for independent cleanup tasks
 
 **Client Reuse Pattern:**
 ```python
@@ -648,6 +649,14 @@ async with AsyncAWSClient(
 - `get_ec2_client()` and `get_pricing_client()` are async context managers that yield cached clients
 - On error, cached clients are closed and will be recreated on next request
 - All initialization is protected by `asyncio.Lock` for thread safety
+
+**Cleanup on Cancellation:**
+- When workers are cancelled (e.g., user quits TUI during pricing fetch), proper cleanup is critical
+- `close()` method spawns cleanup tasks via `asyncio.create_task()` that continue even if caller is cancelled
+- `_close_client_internal()` explicitly closes the aiohttp connector and http session before calling `__aexit__`
+- Multiple attribute paths are tried to find the http session (aiobotocore uses different internal structures)
+- Includes 250ms grace period per aiohttp documentation for graceful TCP connection shutdown
+- Cleanup tasks are gathered with timeout (1s) and `return_exceptions=True` for resilience
 
 ### Pricing API Region Mapping
 

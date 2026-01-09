@@ -361,8 +361,7 @@ class InstanceDetail(Screen):
             needs_ri_3yr_no or needs_ri_3yr_partial or needs_ri_3yr_all):
 
             async def fetch_pricing():
-                """Async worker to fetch spot price and savings plans"""
-                async_client = None
+                """Async worker to fetch spot price, savings plans, and RI pricing"""
                 try:
                     # Get region and settings from app
                     if hasattr(self.app, 'current_region') and self.app.current_region:
@@ -371,18 +370,15 @@ class InstanceDetail(Screen):
 
                         DebugLog.log(f"Fetching additional pricing for {inst.instance_type} in {region}")
 
-                        # Create async client and enter context
-                        async_client = AsyncAWSClient(
+                        # Use async with for proper resource management
+                        async with AsyncAWSClient(
                             region,
                             settings.aws_profile if settings else None,
                             connect_timeout=settings.aws_connect_timeout if settings else 10,
                             read_timeout=settings.aws_read_timeout if settings else 60,
                             pricing_timeout=settings.pricing_read_timeout if settings else 90,
                             max_pool_connections=settings.max_pool_connections if settings else 50
-                        )
-                        await async_client.__aenter__()
-
-                        try:
+                        ) as async_client:
                             pricing_service = AsyncPricingService(async_client, settings=settings)
 
                             # Fetch spot price if needed
@@ -449,14 +445,8 @@ class InstanceDetail(Screen):
                             except Exception as e:
                                 DebugLog.log(f"Error updating UI after pricing fetch: {e}")
 
-                        finally:
-                            # Ensure async client is properly closed
-                            if async_client is not None:
-                                try:
-                                    await async_client.__aexit__(None, None, None)
-                                    DebugLog.log("Async client closed")
-                                except Exception as e:
-                                    DebugLog.log(f"Error closing async client: {e}")
+                        # async with will handle cleanup automatically via __aexit__
+                        DebugLog.log("Async client context exited, cleanup should be complete")
 
                     else:
                         DebugLog.log("Cannot fetch pricing: region not set")

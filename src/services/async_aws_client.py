@@ -60,24 +60,88 @@ class AsyncAWSClient:
         await self.close()
         return False
 
+    async def _close_client_internal(self, client) -> None:
+        """Internal method to close a single client with proper aiohttp cleanup"""
+        try:
+            # aioboto3/aiobotocore stores the http session in the endpoint
+            # Try multiple possible attribute paths
+            http_session = None
+
+            # Path 1: _endpoint.http_session (aiobotocore style)
+            if hasattr(client, '_endpoint'):
+                endpoint = client._endpoint
+                if hasattr(endpoint, 'http_session'):
+                    http_session = endpoint.http_session
+                elif hasattr(endpoint, '_http_session'):
+                    http_session = endpoint._http_session
+
+            # Path 2: _client._endpoint (wrapped client style)
+            if http_session is None and hasattr(client, '_client'):
+                inner = client._client
+                if hasattr(inner, '_endpoint'):
+                    endpoint = inner._endpoint
+                    if hasattr(endpoint, 'http_session'):
+                        http_session = endpoint.http_session
+                    elif hasattr(endpoint, '_http_session'):
+                        http_session = endpoint._http_session
+
+            # Close the http session if found
+            if http_session is not None:
+                connector = getattr(http_session, 'connector', None) or getattr(http_session, '_connector', None)
+                if connector is not None:
+                    connector.close()
+                await http_session.close()
+
+            # Call the client's __aexit__
+            await client.__aexit__(None, None, None)
+
+            # aiohttp graceful shutdown wait
+            await asyncio.sleep(0.250)
+        except Exception:
+            pass  # Ignore all cleanup errors
+
     async def close(self):
-        """Close all clients and cleanup resources"""
+        """Close all clients and cleanup resources
+
+        Properly closes aioboto3 clients and their underlying aiohttp sessions.
+        Uses fire-and-forget tasks to ensure cleanup completes even if the caller is cancelled.
+        """
         async with self._lock:
+            clients_to_close = []
+
             if self._ec2_client is not None:
-                try:
-                    await self._ec2_client.__aexit__(None, None, None)
-                except Exception:
-                    pass
+                clients_to_close.append(self._ec2_client)
                 self._ec2_client = None
 
             if self._pricing_client is not None:
-                try:
-                    await self._pricing_client.__aexit__(None, None, None)
-                except Exception:
-                    pass
+                clients_to_close.append(self._pricing_client)
                 self._pricing_client = None
 
             self._session = None
+
+        # Schedule cleanup tasks that will continue even if this coroutine is cancelled
+        # This is critical for proper aiohttp shutdown
+        cleanup_tasks = []
+        for client in clients_to_close:
+            try:
+                # Create a task that's independent of the current coroutine
+                task = asyncio.create_task(self._close_client_internal(client))
+                cleanup_tasks.append(task)
+            except Exception:
+                pass
+
+        # Wait for cleanup with a timeout, but don't fail if cancelled
+        if cleanup_tasks:
+            try:
+                # Use gather with return_exceptions to not raise on individual failures
+                await asyncio.wait_for(
+                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
+                    timeout=1.0
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                # If we time out or are cancelled, the tasks will still run
+                # until the event loop stops
+                pass
 
     @asynccontextmanager
     async def get_ec2_client(self):
