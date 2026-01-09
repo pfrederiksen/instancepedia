@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Callable
 from decimal import Decimal
 from botocore.exceptions import ClientError, BotoCoreError
 
@@ -13,6 +13,11 @@ from src.cache import get_pricing_cache
 from src.config.settings import Settings
 
 logger = logging.getLogger("instancepedia")
+
+# Callback type definitions for better IDE support and type safety
+CacheHitCallback = Callable[[], None]
+PriceCallback = Callable[[str, Optional[float]], None]
+ProgressCallback = Callable[[int, int], None]
 
 
 # Region code to Pricing API location name mapping
@@ -93,7 +98,7 @@ class AsyncPricingService:
         instance_type: str,
         region: str,
         max_retries: int = 3,
-        cache_hit_callback=None
+        cache_hit_callback: Optional[CacheHitCallback] = None
     ) -> Optional[float]:
         """
         Get on-demand price for an instance type in a region
@@ -266,7 +271,7 @@ class AsyncPricingService:
         region: str,
         lease_length: str = "1yr",
         max_retries: int = 3,
-        cache_hit_callback=None
+        cache_hit_callback: Optional[CacheHitCallback] = None
     ) -> Optional[float]:
         """
         Get Savings Plan price for an instance type (Reserved pricing with No Upfront)
@@ -413,7 +418,7 @@ class AsyncPricingService:
         lease_length: str = "1yr",
         payment_option: str = "no_upfront",
         max_retries: int = 3,
-        cache_hit_callback=None
+        cache_hit_callback: Optional[CacheHitCallback] = None
     ) -> Optional[float]:
         """
         Get Reserved Instance price for an instance type (Standard RIs only)
@@ -573,9 +578,9 @@ class AsyncPricingService:
         instance_types: List[str],
         region: str,
         concurrency: int = 10,
-        progress_callback=None,
-        price_callback=None,
-        cache_hit_callback=None
+        progress_callback: Optional[ProgressCallback] = None,
+        price_callback: Optional[PriceCallback] = None,
+        cache_hit_callback: Optional[CacheHitCallback] = None
     ) -> Dict[str, Optional[float]]:
         """
         Get on-demand prices for multiple instance types concurrently
