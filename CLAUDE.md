@@ -738,6 +738,15 @@ When `vim_keys = true` in config (or `INSTANCEPEDIA_VIM_KEYS=true`), enables:
 
 Implementation in `on_key()` method checks `self._settings.vim_keys` before processing hjkl keys.
 
+**Lazy Loading for Large Instance Lists** (`src/ui/instance_list.py`):
+The tree uses lazy loading to improve performance with large instance lists (500+ instances):
+- Category and family nodes are created immediately
+- Instance leaves are only added when a family node is first expanded
+- `_family_instances` dict stores instances per family for deferred loading
+- `_populated_families` set tracks which families have been populated
+- `_populate_family_instances()` method adds instance leaves on first expansion
+- Expanded state is preserved across tree rebuilds during pricing updates
+
 ## Key Implementation Details
 
 ### Performance Optimization
