@@ -304,3 +304,131 @@ class TestCacheKeyGeneration:
         # Should retrieve correct prices
         assert cache.get("us-east-1", "t3.micro", "on_demand") == 0.0104
         assert cache.get("us-east-1", "t3.micro", "spot") == 0.0036
+
+
+class TestReservedInstanceCaching:
+    """Test Reserved Instance pricing cache functionality"""
+
+    def test_ri_1yr_no_upfront_cache(self, cache):
+        """Test 1yr No Upfront RI pricing is cached correctly"""
+        cache.set("us-east-1", "m5.large", "ri_1yr_no_upfront", 0.0600)
+
+        price = cache.get("us-east-1", "m5.large", "ri_1yr_no_upfront")
+        assert price == 0.0600
+
+    def test_ri_1yr_partial_upfront_cache(self, cache):
+        """Test 1yr Partial Upfront RI pricing is cached correctly"""
+        cache.set("us-east-1", "m5.large", "ri_1yr_partial_upfront", 0.0290)
+
+        price = cache.get("us-east-1", "m5.large", "ri_1yr_partial_upfront")
+        assert price == 0.0290
+
+    def test_ri_1yr_all_upfront_cache(self, cache):
+        """Test 1yr All Upfront RI pricing is cached correctly"""
+        cache.set("us-east-1", "m5.large", "ri_1yr_all_upfront", 0.0280)
+
+        price = cache.get("us-east-1", "m5.large", "ri_1yr_all_upfront")
+        assert price == 0.0280
+
+    def test_ri_3yr_no_upfront_cache(self, cache):
+        """Test 3yr No Upfront RI pricing is cached correctly"""
+        cache.set("us-east-1", "m5.large", "ri_3yr_no_upfront", 0.0410)
+
+        price = cache.get("us-east-1", "m5.large", "ri_3yr_no_upfront")
+        assert price == 0.0410
+
+    def test_ri_3yr_partial_upfront_cache(self, cache):
+        """Test 3yr Partial Upfront RI pricing is cached correctly"""
+        cache.set("us-east-1", "m5.large", "ri_3yr_partial_upfront", 0.0190)
+
+        price = cache.get("us-east-1", "m5.large", "ri_3yr_partial_upfront")
+        assert price == 0.0190
+
+    def test_ri_3yr_all_upfront_cache(self, cache):
+        """Test 3yr All Upfront RI pricing is cached correctly"""
+        cache.set("us-east-1", "m5.large", "ri_3yr_all_upfront", 0.0180)
+
+        price = cache.get("us-east-1", "m5.large", "ri_3yr_all_upfront")
+        assert price == 0.0180
+
+    def test_all_ri_types_separate_cache(self, cache):
+        """Test all 6 RI pricing types are cached separately"""
+        # Cache all 6 RI pricing types
+        cache.set("us-east-1", "m5.large", "ri_1yr_no_upfront", 0.0600)
+        cache.set("us-east-1", "m5.large", "ri_1yr_partial_upfront", 0.0290)
+        cache.set("us-east-1", "m5.large", "ri_1yr_all_upfront", 0.0280)
+        cache.set("us-east-1", "m5.large", "ri_3yr_no_upfront", 0.0410)
+        cache.set("us-east-1", "m5.large", "ri_3yr_partial_upfront", 0.0190)
+        cache.set("us-east-1", "m5.large", "ri_3yr_all_upfront", 0.0180)
+
+        # Should have six separate cache files
+        cache_files = list(cache.cache_dir.glob("*.json"))
+        assert len(cache_files) == 6
+
+        # Should retrieve correct prices for each type
+        assert cache.get("us-east-1", "m5.large", "ri_1yr_no_upfront") == 0.0600
+        assert cache.get("us-east-1", "m5.large", "ri_1yr_partial_upfront") == 0.0290
+        assert cache.get("us-east-1", "m5.large", "ri_1yr_all_upfront") == 0.0280
+        assert cache.get("us-east-1", "m5.large", "ri_3yr_no_upfront") == 0.0410
+        assert cache.get("us-east-1", "m5.large", "ri_3yr_partial_upfront") == 0.0190
+        assert cache.get("us-east-1", "m5.large", "ri_3yr_all_upfront") == 0.0180
+
+    def test_ri_cache_key_format(self, cache):
+        """Test RI cache keys use correct naming format"""
+        cache.set("us-east-1", "m5.large", "ri_1yr_partial_upfront", 0.0290)
+
+        cache_files = list(cache.cache_dir.glob("*.json"))
+        assert len(cache_files) == 1
+
+        # Cache filename should contain RI pricing type
+        filename = cache_files[0].name
+        assert "ri_1yr_partial_upfront" in filename
+        assert "us-east-1" in filename
+        assert "m5_large" in filename  # Dots replaced with underscores
+
+    def test_ri_none_values_cached(self, cache):
+        """Test RI pricing None values are cached to avoid repeated API calls"""
+        # Cache None values for RI pricing (common for unavailable pricing)
+        cache.set("us-east-1", "t3.micro", "ri_1yr_no_upfront", None)
+        cache.set("us-east-1", "t3.micro", "ri_1yr_partial_upfront", None)
+
+        # Files should exist even for None values
+        cache_files = list(cache.cache_dir.glob("*.json"))
+        assert len(cache_files) == 2
+
+        # Should retrieve None values
+        assert cache.get("us-east-1", "t3.micro", "ri_1yr_no_upfront") is None
+        assert cache.get("us-east-1", "t3.micro", "ri_1yr_partial_upfront") is None
+
+    def test_ri_pricing_mixed_with_other_types(self, cache):
+        """Test RI pricing cached alongside on-demand and spot pricing"""
+        # Cache all pricing types for same instance
+        cache.set("us-east-1", "m5.large", "on_demand", 0.0960)
+        cache.set("us-east-1", "m5.large", "spot", 0.0288)
+        cache.set("us-east-1", "m5.large", "ri_1yr_no_upfront", 0.0600)
+        cache.set("us-east-1", "m5.large", "ri_3yr_partial_upfront", 0.0190)
+
+        # Should have four separate cache files
+        cache_files = list(cache.cache_dir.glob("*.json"))
+        assert len(cache_files) == 4
+
+        # Should retrieve correct price for each type
+        assert cache.get("us-east-1", "m5.large", "on_demand") == 0.0960
+        assert cache.get("us-east-1", "m5.large", "spot") == 0.0288
+        assert cache.get("us-east-1", "m5.large", "ri_1yr_no_upfront") == 0.0600
+        assert cache.get("us-east-1", "m5.large", "ri_3yr_partial_upfront") == 0.0190
+
+    def test_clear_ri_cache_by_instance(self, cache):
+        """Test clearing RI cache entries by instance type"""
+        # Cache RI pricing for multiple instances
+        cache.set("us-east-1", "m5.large", "ri_1yr_no_upfront", 0.0600)
+        cache.set("us-east-1", "m5.large", "ri_3yr_partial_upfront", 0.0190)
+        cache.set("us-east-1", "c5.xlarge", "ri_1yr_no_upfront", 0.0850)
+
+        count = cache.clear(instance_type="m5.large")
+
+        # Should clear both m5.large entries
+        assert count == 2
+
+        # c5.xlarge should still exist
+        assert cache.get("us-east-1", "c5.xlarge", "ri_1yr_no_upfront") == 0.0850

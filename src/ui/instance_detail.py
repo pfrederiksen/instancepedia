@@ -31,7 +31,6 @@ class InstanceDetail(Screen):
         self.free_tier_service = FreeTierService()
         self.ebs_recommendation_service = EbsRecommendationService()
         self._pricing_worker = None
-        self._async_client = None
 
     def compose(self) -> ComposeResult:
         DebugLog.log("InstanceDetail.compose() called")
@@ -370,18 +369,15 @@ class InstanceDetail(Screen):
 
                         DebugLog.log(f"Fetching additional pricing for {inst.instance_type} in {region}")
 
-                        # Create and store async client reference
-                        self._async_client = AsyncAWSClient(
+                        # Use async context manager for proper resource management
+                        async with AsyncAWSClient(
                             region,
                             settings.aws_profile if settings else None,
                             connect_timeout=settings.aws_connect_timeout if settings else 10,
                             read_timeout=settings.aws_read_timeout if settings else 60,
                             pricing_timeout=settings.pricing_read_timeout if settings else 90,
                             max_pool_connections=settings.max_pool_connections if settings else 50
-                        )
-
-                        # Use async context manager for proper resource management
-                        async with self._async_client as async_client:
+                        ) as async_client:
                             pricing_service = AsyncPricingService(async_client, settings=settings)
 
                             # Fetch spot price if needed
@@ -459,22 +455,13 @@ class InstanceDetail(Screen):
     def on_unmount(self) -> None:
         """Cleanup when screen is unmounted"""
         # Cancel pricing worker if still running
+        # This will cause the context manager to exit and clean up the async client
         if self._pricing_worker is not None and not self._pricing_worker.is_finished:
             try:
                 self._pricing_worker.cancel()
                 DebugLog.log("Cancelled pricing worker on screen unmount")
             except Exception as e:
                 DebugLog.log(f"Error cancelling pricing worker: {e}")
-
-        # Close async client if it exists
-        if self._async_client is not None:
-            try:
-                import asyncio
-                # Schedule cleanup
-                asyncio.create_task(self._async_client.close())
-                DebugLog.log("Scheduled async client cleanup on screen unmount")
-            except Exception as e:
-                DebugLog.log(f"Error scheduling async client cleanup: {e}")
 
     def action_back(self) -> None:
         """Go back to instance list"""

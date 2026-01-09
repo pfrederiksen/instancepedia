@@ -234,3 +234,314 @@ def json_price_item(instance_type: str, price: str) -> str:
             }
         }
     })
+
+
+def json_reserved_price_item(
+    instance_type: str,
+    lease_length: str,
+    payment_option: str,
+    price: str,
+    offering_class: str = "standard"
+) -> str:
+    """Helper to create JSON Reserved Instance price list item"""
+    import json
+    return json.dumps({
+        'product': {
+            'attributes': {
+                'location': 'US East (N. Virginia)',
+                'instanceType': instance_type
+            }
+        },
+        'terms': {
+            'Reserved': {
+                'TERM456': {
+                    'termAttributes': {
+                        'LeaseContractLength': lease_length,
+                        'PurchaseOption': payment_option,
+                        'OfferingClass': offering_class
+                    },
+                    'priceDimensions': {
+                        'DIM456': {
+                            'unit': 'Hrs',
+                            'pricePerUnit': {'USD': price}
+                        }
+                    }
+                }
+            }
+        }
+    })
+
+
+class TestGetReservedInstancePrice:
+    """Test get_reserved_instance_price method"""
+
+    def test_get_ri_price_cache_hit(self, pricing_service, mock_aws_client):
+        """Test getting RI price from cache"""
+        pricing_service.cache.get.return_value = 0.0290
+
+        price = pricing_service.get_reserved_instance_price(
+            "m5.large", "us-east-1", lease_length="1yr", payment_option="partial_upfront"
+        )
+
+        assert price == 0.0290
+        pricing_service.cache.get.assert_called_once_with(
+            "us-east-1", "m5.large", "ri_1yr_partial_upfront"
+        )
+        pricing_service.cache.set.assert_not_called()
+
+    def test_get_ri_price_cache_miss_1yr_no_upfront(self, pricing_service, mock_aws_client):
+        """Test fetching 1yr No Upfront RI price from AWS"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json_reserved_price_item(
+                    instance_type="m5.large",
+                    lease_length="1yr",
+                    payment_option="No Upfront",
+                    price="0.0600"
+                )
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "m5.large", "us-east-1", lease_length="1yr", payment_option="no_upfront"
+        )
+
+        assert price == 0.0600
+        pricing_service.cache.set.assert_called_once_with(
+            "us-east-1", "m5.large", "ri_1yr_no_upfront", 0.0600
+        )
+
+    def test_get_ri_price_cache_miss_1yr_partial_upfront(self, pricing_service, mock_aws_client):
+        """Test fetching 1yr Partial Upfront RI price from AWS"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json_reserved_price_item(
+                    instance_type="m5.large",
+                    lease_length="1yr",
+                    payment_option="Partial Upfront",
+                    price="0.0290"
+                )
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "m5.large", "us-east-1", lease_length="1yr", payment_option="partial_upfront"
+        )
+
+        assert price == 0.0290
+        pricing_service.cache.set.assert_called_once_with(
+            "us-east-1", "m5.large", "ri_1yr_partial_upfront", 0.0290
+        )
+
+    def test_get_ri_price_cache_miss_1yr_all_upfront(self, pricing_service, mock_aws_client):
+        """Test fetching 1yr All Upfront RI price from AWS"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json_reserved_price_item(
+                    instance_type="m5.large",
+                    lease_length="1yr",
+                    payment_option="All Upfront",
+                    price="0.0280"
+                )
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "m5.large", "us-east-1", lease_length="1yr", payment_option="all_upfront"
+        )
+
+        assert price == 0.0280
+        pricing_service.cache.set.assert_called_once_with(
+            "us-east-1", "m5.large", "ri_1yr_all_upfront", 0.0280
+        )
+
+    def test_get_ri_price_cache_miss_3yr_no_upfront(self, pricing_service, mock_aws_client):
+        """Test fetching 3yr No Upfront RI price from AWS"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json_reserved_price_item(
+                    instance_type="m5.large",
+                    lease_length="3yr",
+                    payment_option="No Upfront",
+                    price="0.0410"
+                )
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "m5.large", "us-east-1", lease_length="3yr", payment_option="no_upfront"
+        )
+
+        assert price == 0.0410
+        pricing_service.cache.set.assert_called_once_with(
+            "us-east-1", "m5.large", "ri_3yr_no_upfront", 0.0410
+        )
+
+    def test_get_ri_price_cache_miss_3yr_partial_upfront(self, pricing_service, mock_aws_client):
+        """Test fetching 3yr Partial Upfront RI price from AWS"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json_reserved_price_item(
+                    instance_type="m5.large",
+                    lease_length="3yr",
+                    payment_option="Partial Upfront",
+                    price="0.0190"
+                )
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "m5.large", "us-east-1", lease_length="3yr", payment_option="partial_upfront"
+        )
+
+        assert price == 0.0190
+        pricing_service.cache.set.assert_called_once_with(
+            "us-east-1", "m5.large", "ri_3yr_partial_upfront", 0.0190
+        )
+
+    def test_get_ri_price_cache_miss_3yr_all_upfront(self, pricing_service, mock_aws_client):
+        """Test fetching 3yr All Upfront RI price from AWS"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json_reserved_price_item(
+                    instance_type="m5.large",
+                    lease_length="3yr",
+                    payment_option="All Upfront",
+                    price="0.0180"
+                )
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "m5.large", "us-east-1", lease_length="3yr", payment_option="all_upfront"
+        )
+
+        assert price == 0.0180
+        pricing_service.cache.set.assert_called_once_with(
+            "us-east-1", "m5.large", "ri_3yr_all_upfront", 0.0180
+        )
+
+    def test_get_ri_price_filters_convertible(self, pricing_service, mock_aws_client):
+        """Test that Convertible RIs are excluded (only Standard returned)"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        # Return both standard and convertible, should only use standard
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json_reserved_price_item(
+                    instance_type="m5.large",
+                    lease_length="1yr",
+                    payment_option="No Upfront",
+                    price="0.0700",
+                    offering_class="convertible"  # Should be filtered out
+                ),
+                json_reserved_price_item(
+                    instance_type="m5.large",
+                    lease_length="1yr",
+                    payment_option="No Upfront",
+                    price="0.0600",
+                    offering_class="standard"  # Should be used
+                )
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "m5.large", "us-east-1", lease_length="1yr", payment_option="no_upfront"
+        )
+
+        # Should return standard RI price, not convertible
+        assert price == 0.0600
+
+    def test_get_ri_price_no_results(self, pricing_service, mock_aws_client):
+        """Test when pricing API returns no RI results"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {'PriceList': []}
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "nonexistent.type", "us-east-1", lease_length="1yr", payment_option="no_upfront"
+        )
+
+        assert price is None
+        # None should be cached to avoid repeated API calls
+        pricing_service.cache.set.assert_called_once_with(
+            "us-east-1", "nonexistent.type", "ri_1yr_no_upfront", None
+        )
+
+    def test_get_ri_price_with_retries(self, pricing_service, mock_aws_client):
+        """Test retry logic on throttling for RI pricing"""
+        pricing_service.cache.get.return_value = None
+
+        from botocore.exceptions import ClientError
+        mock_pricing_client = MagicMock()
+        # First call throttles, second succeeds
+        mock_pricing_client.get_products.side_effect = [
+            ClientError({'Error': {'Code': 'Throttling'}}, 'GetProducts'),
+            {
+                'PriceList': [
+                    json_reserved_price_item(
+                        instance_type="m5.large",
+                        lease_length="1yr",
+                        payment_option="Partial Upfront",
+                        price="0.0290"
+                    )
+                ]
+            }
+        ]
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):  # Don't actually sleep in tests
+            price = pricing_service.get_reserved_instance_price(
+                "m5.large", "us-east-1",
+                lease_length="1yr",
+                payment_option="partial_upfront",
+                max_retries=3
+            )
+
+        assert price == 0.0290
+        assert mock_pricing_client.get_products.call_count == 2
+
+    def test_get_ri_price_api_error(self, pricing_service, mock_aws_client):
+        """Test handling of API errors for RI pricing"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.side_effect = Exception("API Error")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):  # Don't actually sleep in tests
+            price = pricing_service.get_reserved_instance_price(
+                "m5.large", "us-east-1", lease_length="1yr", payment_option="no_upfront", max_retries=2
+            )
+
+        assert price is None
+        # On API error after retries, None is NOT cached (allows retry on next request)
+        pricing_service.cache.set.assert_not_called()

@@ -674,11 +674,40 @@ Requires Python >= 3.9 (for async features and type hints).
 
 ### Branch Workflow
 
-- Main branch: `main`
+**CRITICAL: NEVER push directly to main. All changes MUST go through a Pull Request.**
+
+- Main branch: `main` - protected, only accepts changes via PR
 - Feature branches: `feature/<name>` (e.g., `feature/async-boto3`)
 - Fix branches: `fix/<name>` (e.g., `fix/p0-error-handling-and-tests`)
-- Create branch before starting work
-- Merge to main after testing
+- Documentation branches: `docs/<name>` (e.g., `docs/ri-pricing-documentation`)
+- Test branches: `test/<name>` (e.g., `test/ri-pricing-coverage`)
+
+**Workflow:**
+1. Create a new branch for ALL work (even small fixes)
+2. Make changes and commit to the branch
+3. Push the branch to remote
+4. Create a Pull Request
+5. After PR is approved, merge to main via GitHub
+6. Never use `git push` when on main branch
+
+**Example:**
+```bash
+# Create and switch to new branch
+git checkout -b test/add-ri-pricing-tests
+
+# Make changes, commit
+git add .
+git commit -m "test: Add RI pricing test coverage"
+
+# Push branch
+git push -u origin test/add-ri-pricing-tests
+
+# Create PR via gh CLI
+gh pr create --title "Add RI pricing test coverage" --body "..."
+
+# After PR approved, merge via GitHub UI or:
+gh pr merge --squash
+```
 
 ### Caching System
 
