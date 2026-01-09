@@ -88,6 +88,79 @@ Update `TROUBLESHOOTING.md` when you:
   - README.md: Added environment variables section with examples ✅
 ```
 
+## Test Coverage - MANDATORY
+
+**100% test coverage is required for all new code.** Every new feature, function, or bug fix MUST include corresponding tests.
+
+### Test Requirements
+
+1. **All CLI commands must have tests** - Every `cmd_*` function in `src/cli/commands.py` requires tests in `tests/test_cli_commands.py`
+2. **All services must have tests** - New service methods require unit tests with mocked dependencies
+3. **All TUI components must have tests** - New screens, widgets, or interactions require TUI tests
+4. **Error cases must be tested** - Test both success and failure scenarios
+5. **Edge cases must be tested** - Empty inputs, None values, boundary conditions
+
+### Test Patterns
+
+**CLI Command Test Pattern:**
+```python
+class TestCmdNewFeature:
+    """Tests for cmd_new_feature function"""
+
+    @patch('src.cli.commands.SomeService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_cmd_new_feature_success(self, mock_get_formatter, mock_get_client, mock_service_class):
+        """Test successful new feature command"""
+        # Setup mocks
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+        # ... test implementation
+
+    def test_cmd_new_feature_error(self, ...):
+        """Test new feature with error"""
+        # Test error handling
+```
+
+**Service Test Pattern:**
+```python
+@pytest.fixture
+def service(mock_aws_client):
+    """Create service with mocked dependencies"""
+    with patch('src.services.some_service.get_cache') as mock_cache:
+        mock_cache.return_value = Mock()
+        return SomeService(mock_aws_client)
+
+def test_service_method_success(service):
+    """Test service method success case"""
+    result = service.some_method("input")
+    assert result == expected_value
+
+def test_service_method_error(service):
+    """Test service method error handling"""
+    service.dependency.side_effect = Exception("Error")
+    result = service.some_method("input")
+    assert result is None  # Or appropriate error handling
+```
+
+### Before Submitting Code
+
+1. **Run all tests**: `pytest tests/ -v`
+2. **Verify new tests pass**: `pytest tests/test_your_new_file.py -v`
+3. **Check test coverage for changed files**: Review that all new code paths are tested
+4. **Test error scenarios**: Ensure exceptions and edge cases are covered
+
+### Test File Organization
+
+- `tests/test_cli_commands.py` - CLI command tests
+- `tests/test_pricing_service.py` - Pricing service tests
+- `tests/test_pricing_info.py` - PricingInfo model tests
+- `tests/test_cache.py` - Cache tests
+- `tests/test_tui_*.py` - TUI component tests
+- `tests/conftest.py` - Shared fixtures
+
+**Never skip tests.** If a test is difficult to write, that's often a sign the code needs refactoring.
+
 ## Project Overview
 
 Instancepedia is an EC2 Instance Type Browser with both TUI (Terminal User Interface) and CLI (Command-Line Interface) modes. It provides detailed EC2 instance information, pricing (on-demand and spot), and free tier eligibility indicators.
