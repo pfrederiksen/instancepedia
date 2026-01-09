@@ -37,6 +37,96 @@ class TestGetAWSClient:
             commands.get_aws_client("us-east-1", None)
 
 
+class TestStatusHelper:
+    """Tests for status() helper function"""
+
+    def test_status_prints_to_stderr_when_not_quiet(self, capsys):
+        """Test status prints message to stderr when quiet=False"""
+        from src.cli.commands.base import status
+        status("Test message", quiet=False)
+        captured = capsys.readouterr()
+        assert captured.err == "Test message\n"
+        assert captured.out == ""
+
+    def test_status_silent_when_quiet(self, capsys):
+        """Test status prints nothing when quiet=True"""
+        from src.cli.commands.base import status
+        status("Test message", quiet=True)
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert captured.out == ""
+
+    def test_status_default_not_quiet(self, capsys):
+        """Test status defaults to quiet=False"""
+        from src.cli.commands.base import status
+        status("Default test")
+        captured = capsys.readouterr()
+        assert captured.err == "Default test\n"
+
+
+class TestProgressHelper:
+    """Tests for progress() helper function"""
+
+    def test_progress_prints_to_stderr_when_not_quiet(self, capsys):
+        """Test progress prints formatted message to stderr when quiet=False"""
+        from src.cli.commands.base import progress
+        progress(5, 10, "items", quiet=False)
+        captured = capsys.readouterr()
+        assert "5/10 items" in captured.err
+        assert captured.out == ""
+
+    def test_progress_silent_when_quiet(self, capsys):
+        """Test progress prints nothing when quiet=True"""
+        from src.cli.commands.base import progress
+        progress(5, 10, "items", quiet=True)
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+    def test_progress_custom_item_type(self, capsys):
+        """Test progress with custom item type"""
+        from src.cli.commands.base import progress
+        progress(3, 7, "instances", quiet=False)
+        captured = capsys.readouterr()
+        assert "3/7 instances" in captured.err
+
+
+class TestWriteOutputHelper:
+    """Tests for write_output() helper function"""
+
+    def test_write_output_to_stdout(self, capsys):
+        """Test write_output writes to stdout when no path given"""
+        from src.cli.commands.base import write_output
+        write_output("Test output", None, quiet=False)
+        captured = capsys.readouterr()
+        assert captured.out == "Test output\n"
+
+    def test_write_output_to_file(self, tmp_path, capsys):
+        """Test write_output writes to file when path given"""
+        from src.cli.commands.base import write_output
+        output_file = tmp_path / "output.txt"
+        write_output("File content", str(output_file), quiet=False)
+
+        # Check file was written
+        assert output_file.read_text() == "File content"
+
+        # Check status message
+        captured = capsys.readouterr()
+        assert "Output written to" in captured.err
+
+    def test_write_output_to_file_quiet(self, tmp_path, capsys):
+        """Test write_output suppresses status message when quiet"""
+        from src.cli.commands.base import write_output
+        output_file = tmp_path / "output.txt"
+        write_output("File content", str(output_file), quiet=True)
+
+        # Check file was written
+        assert output_file.read_text() == "File content"
+
+        # Check no status message
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+
 class TestCmdList:
     """Tests for cmd_list function"""
     
