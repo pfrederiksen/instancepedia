@@ -208,11 +208,26 @@ def cmd_show(args) -> int:
             spot = pricing_service.get_spot_price(instance.instance_type, args.region)
             savings_1yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "1yr")
             savings_3yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "3yr")
+
+            # Fetch RI pricing
+            ri_1yr_no = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "1yr", "no_upfront")
+            ri_1yr_partial = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "1yr", "partial_upfront")
+            ri_1yr_all = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "1yr", "all_upfront")
+            ri_3yr_no = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "3yr", "no_upfront")
+            ri_3yr_partial = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "3yr", "partial_upfront")
+            ri_3yr_all = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "3yr", "all_upfront")
+
             instance.pricing = PricingInfo(
                 on_demand_price=on_demand,
                 spot_price=spot,
                 savings_plan_1yr_no_upfront=savings_1yr,
-                savings_plan_3yr_no_upfront=savings_3yr
+                savings_plan_3yr_no_upfront=savings_3yr,
+                ri_1yr_no_upfront=ri_1yr_no,
+                ri_1yr_partial_upfront=ri_1yr_partial,
+                ri_1yr_all_upfront=ri_1yr_all,
+                ri_3yr_no_upfront=ri_3yr_no,
+                ri_3yr_partial_upfront=ri_3yr_partial,
+                ri_3yr_all_upfront=ri_3yr_all
             )
         
         # Output
