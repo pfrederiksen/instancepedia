@@ -246,6 +246,100 @@ The spot price history feature (`spot-history` command) provides historical anal
 
 All commands are implemented in `src/cli/commands.py` with argument parsing in `src/cli/parser.py`.
 
+### Reserved Instance Pricing
+
+The Reserved Instance (RI) pricing feature provides comprehensive pricing for Standard Reserved Instances with all payment options:
+
+**Implementation** (`src/services/pricing_service.py`, `src/services/async_pricing_service.py`):
+- `get_reserved_instance_price(instance_type, region, lease_length, payment_option)` method
+- Supports lease lengths: `"1yr"`, `"3yr"`
+- Supports payment options: `"no_upfront"`, `"partial_upfront"`, `"all_upfront"`
+- Filters for Standard RIs only (excludes Convertible RIs via `OfferingClass='standard'`)
+- Uses AWS Pricing API Reserved terms
+- Cache keys: `ri_{lease}_{payment_option}` (e.g., `ri_1yr_partial_upfront`)
+
+**Data Model** (`src/models/instance_type.py`):
+- `PricingInfo` dataclass has 6 RI fields:
+  - `ri_1yr_no_upfront`, `ri_1yr_partial_upfront`, `ri_1yr_all_upfront`
+  - `ri_3yr_no_upfront`, `ri_3yr_partial_upfront`, `ri_3yr_all_upfront`
+- Format methods: `format_ri_1yr_no_upfront()`, etc.
+- `calculate_savings_percentage()` supports all RI price types
+
+**AWS API Details**:
+- Uses same filters as Savings Plans (ServiceCode, location, instanceType, tenancy, OS, etc.)
+- Term matching logic:
+  ```python
+  if (lease_contract_length == api_lease and
+      purchase_option == api_payment and
+      offering_class == 'standard'):
+      # Extract hourly price
+  ```
+- Payment option mapping:
+  ```python
+  {
+      "no_upfront": "No Upfront",
+      "partial_upfront": "Partial Upfront",
+      "all_upfront": "All Upfront"
+  }
+  ```
+
+**Pricing Display**:
+- AWS returns effective hourly rates (upfront costs are amortized over the term)
+- Displayed as-is with note: "* Effective hourly rate (includes prorated upfront payment)"
+- Example: 1-year Partial Upfront at $500 upfront + $0.005/hr = $0.0622/hr effective rate
+
+**TUI Integration** (`src/ui/instance_detail.py`):
+- Display all 6 RI options in instance detail view
+- Grouped by term (1-Year section, 3-Year section)
+- Shows savings percentages vs on-demand
+- Fetched in background via `_fetch_pricing_if_needed()`
+- Proper cleanup: `on_unmount()` cancels pricing worker and closes async client
+
+**CLI Integration** (`src/cli/commands.py`, `src/cli/output.py`):
+- Fetched in `cmd_show()` when `--include-pricing` flag is used
+- TableFormatter displays RI sections with savings percentages
+- JSONFormatter includes nested `reserved_instances` object:
+  ```json
+  "reserved_instances": {
+    "1yr": {
+      "no_upfront": 0.0600,
+      "partial_upfront": 0.0290,
+      "all_upfront": null
+    },
+    "3yr": {
+      "no_upfront": 0.0410,
+      "partial_upfront": 0.0190,
+      "all_upfront": null
+    }
+  }
+  ```
+
+**Cache Behavior**:
+- Each RI price type cached separately
+- TTL: 4 hours (same as other pricing)
+- Cache miss returns None (common for unavailable RI pricing)
+- Caches both successful lookups and None values
+
+**Error Handling**:
+- Logs at debug level (not error) for missing RI pricing (common scenario)
+- Graceful degradation - shows "N/A" for unavailable prices
+- Same retry logic as Savings Plans (exponential backoff on throttling)
+
+**Example Output**:
+```
+Reserved Instances (Standard, 1-Year):
+  No Upfront: $0.0600/hr (37.5% savings)
+  Partial Upfront: $0.0290/hr (69.8% savings) *
+  All Upfront: N/A
+
+Reserved Instances (Standard, 3-Year):
+  No Upfront: $0.0410/hr (57.3% savings)
+  Partial Upfront: $0.0190/hr (80.2% savings) *
+  All Upfront: N/A
+
+* Effective hourly rate (includes prorated upfront payment)
+```
+
 ## Common Commands
 
 ### Development Setup
