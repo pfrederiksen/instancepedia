@@ -612,3 +612,307 @@ class TestCacheHitCallback:
 
             # Callback should NOT have been called (cache miss)
             assert callback_count[0] == 0
+
+
+class TestPricingMetrics:
+    """Tests for PricingMetrics dataclass"""
+
+    def test_initial_state(self):
+        """Test PricingMetrics initial state"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+
+        assert metrics.total_requests == 0
+        assert metrics.cache_hits == 0
+        assert metrics.api_calls == 0
+        assert metrics.successful_fetches == 0
+        assert metrics.failed_fetches == 0
+        assert metrics.end_time is None
+
+    def test_record_cache_hit(self):
+        """Test recording cache hits"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        metrics.record_cache_hit()
+        metrics.record_cache_hit()
+
+        assert metrics.cache_hits == 2
+        assert metrics.total_requests == 2
+        assert metrics.successful_fetches == 2
+        assert metrics.api_calls == 0  # Cache hits don't count as API calls
+
+    def test_record_api_call_success(self):
+        """Test recording successful API calls"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        metrics.record_api_call(success=True)
+        metrics.record_api_call(success=True)
+
+        assert metrics.api_calls == 2
+        assert metrics.total_requests == 2
+        assert metrics.successful_fetches == 2
+        assert metrics.failed_fetches == 0
+
+    def test_record_api_call_failure(self):
+        """Test recording failed API calls"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        metrics.record_api_call(success=False)
+        metrics.record_api_call(success=True)
+        metrics.record_api_call(success=False)
+
+        assert metrics.api_calls == 3
+        assert metrics.total_requests == 3
+        assert metrics.successful_fetches == 1
+        assert metrics.failed_fetches == 2
+
+    def test_cache_hit_rate(self):
+        """Test cache hit rate calculation"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        metrics.record_cache_hit()
+        metrics.record_cache_hit()
+        metrics.record_api_call(success=True)
+        metrics.record_api_call(success=False)
+
+        # 2 cache hits out of 4 total requests = 50%
+        assert metrics.cache_hit_rate == 50.0
+
+    def test_cache_hit_rate_zero_requests(self):
+        """Test cache hit rate with no requests"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        assert metrics.cache_hit_rate == 0.0
+
+    def test_success_rate(self):
+        """Test success rate calculation"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        metrics.record_cache_hit()  # Success
+        metrics.record_api_call(success=True)  # Success
+        metrics.record_api_call(success=False)  # Failure
+
+        # 2 successes out of 3 total = 66.67%
+        assert round(metrics.success_rate, 1) == 66.7
+
+    def test_success_rate_zero_requests(self):
+        """Test success rate with no requests"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        assert metrics.success_rate == 0.0
+
+    def test_elapsed_time_running(self):
+        """Test elapsed time while metrics collection is running"""
+        from src.services.async_pricing_service import PricingMetrics
+        import time
+
+        metrics = PricingMetrics()
+        time.sleep(0.1)
+
+        elapsed = metrics.elapsed_time
+        assert elapsed >= 0.1
+
+    def test_elapsed_time_finished(self):
+        """Test elapsed time after metrics collection is finished"""
+        from src.services.async_pricing_service import PricingMetrics
+        import time
+
+        metrics = PricingMetrics()
+        time.sleep(0.1)
+        metrics.finish()
+        time.sleep(0.1)  # More time passes after finish
+
+        # Elapsed time should be frozen at ~0.1s, not include the second sleep
+        assert metrics.elapsed_time < 0.15
+
+    def test_requests_per_second(self):
+        """Test throughput calculation"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        # Create metrics with known timing
+        metrics = PricingMetrics()
+        metrics.total_requests = 100
+        metrics.start_time = 0
+        metrics.end_time = 10  # 10 seconds elapsed
+
+        assert metrics.requests_per_second == 10.0
+
+    def test_requests_per_second_zero_elapsed(self):
+        """Test throughput with zero elapsed time"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        metrics.start_time = 0
+        metrics.end_time = 0
+
+        assert metrics.requests_per_second == 0.0
+
+    def test_to_dict(self):
+        """Test conversion to dictionary"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        metrics.record_cache_hit()
+        metrics.record_api_call(success=True)
+        metrics.record_api_call(success=False)
+        metrics.start_time = 0
+        metrics.end_time = 1
+
+        result = metrics.to_dict()
+
+        assert result["total_requests"] == 3
+        assert result["cache_hits"] == 1
+        assert result["api_calls"] == 2
+        assert result["successful_fetches"] == 2
+        assert result["failed_fetches"] == 1
+        assert result["cache_hit_rate"] == 33.3
+        assert result["success_rate"] == 66.7
+        assert result["elapsed_time"] == 1.0
+        assert result["requests_per_second"] == 3.0
+
+    def test_summary(self):
+        """Test human-readable summary"""
+        from src.services.async_pricing_service import PricingMetrics
+
+        metrics = PricingMetrics()
+        metrics.record_cache_hit()
+        metrics.record_api_call(success=True)
+        metrics.start_time = 0
+        metrics.end_time = 1
+
+        summary = metrics.summary()
+
+        assert "2/2" in summary  # successful/total
+        assert "100% success" in summary
+        assert "50% cached" in summary
+        assert "1.0s" in summary
+
+
+class TestBatchPricingMetrics:
+    """Tests for metrics integration in batch pricing"""
+
+    @pytest.mark.asyncio
+    async def test_batch_returns_metrics_when_requested(self, mock_async_client, mock_cache, mock_settings):
+        """Test that batch pricing can return metrics"""
+        mock_pricing = AsyncMock()
+        mock_pricing.get_products = AsyncMock(return_value={
+            'PriceList': [
+                '{"product":{"attributes":{"location":"US East (N. Virginia)"}},"terms":{"OnDemand":{"term1":{"priceDimensions":{"dim1":{"unit":"Hrs","pricePerUnit":{"USD":"0.0104"}}}}}}}'
+            ]
+        })
+        mock_pricing.__aenter__ = AsyncMock(return_value=mock_pricing)
+        mock_pricing.__aexit__ = AsyncMock(return_value=None)
+
+        mock_async_client.get_pricing_client = Mock(return_value=mock_pricing)
+
+        with patch('src.services.async_pricing_service.get_pricing_cache', return_value=mock_cache):
+            service = AsyncPricingService(mock_async_client, use_cache=True, settings=mock_settings)
+
+            result = await service.get_on_demand_prices_batch(
+                ["t3.micro", "t3.small"],
+                "us-east-1",
+                concurrency=1,
+                return_metrics=True
+            )
+
+            # Should return tuple of (results, metrics)
+            assert isinstance(result, tuple)
+            assert len(result) == 2
+
+            results, metrics = result
+            assert isinstance(results, dict)
+            assert "t3.micro" in results
+            assert "t3.small" in results
+
+            # Check metrics
+            from src.services.async_pricing_service import PricingMetrics
+            assert isinstance(metrics, PricingMetrics)
+            assert metrics.total_requests == 2
+            assert metrics.end_time is not None
+
+    @pytest.mark.asyncio
+    async def test_batch_does_not_return_metrics_by_default(self, mock_async_client, mock_cache, mock_settings):
+        """Test that batch pricing returns only results by default"""
+        mock_pricing = AsyncMock()
+        mock_pricing.get_products = AsyncMock(return_value={'PriceList': []})
+        mock_pricing.__aenter__ = AsyncMock(return_value=mock_pricing)
+        mock_pricing.__aexit__ = AsyncMock(return_value=None)
+
+        mock_async_client.get_pricing_client = Mock(return_value=mock_pricing)
+
+        with patch('src.services.async_pricing_service.get_pricing_cache', return_value=mock_cache):
+            service = AsyncPricingService(mock_async_client, use_cache=True, settings=mock_settings)
+
+            result = await service.get_on_demand_prices_batch(
+                ["t3.micro"],
+                "us-east-1",
+                concurrency=1
+            )
+
+            # Should return dict, not tuple
+            assert isinstance(result, dict)
+            assert "t3.micro" in result
+
+    @pytest.mark.asyncio
+    async def test_batch_metrics_tracks_cache_hits(self, mock_async_client, mock_settings):
+        """Test that batch metrics correctly tracks cache hits"""
+        # Cache returns prices for all instances (simulating cache hits)
+        mock_cache = Mock()
+        mock_cache.get = Mock(return_value=0.0104)  # Always return cached price
+        mock_cache.set = Mock()
+
+        with patch('src.services.async_pricing_service.get_pricing_cache', return_value=mock_cache):
+            service = AsyncPricingService(mock_async_client, use_cache=True, settings=mock_settings)
+
+            results, metrics = await service.get_on_demand_prices_batch(
+                ["t3.micro", "t3.small", "t3.medium"],
+                "us-east-1",
+                concurrency=1,
+                return_metrics=True
+            )
+
+            # All 3 should be cache hits
+            assert metrics.cache_hits == 3
+            assert metrics.api_calls == 0
+            assert metrics.cache_hit_rate == 100.0
+
+    @pytest.mark.asyncio
+    async def test_batch_metrics_tracks_api_calls(self, mock_async_client, mock_settings):
+        """Test that batch metrics correctly tracks API calls"""
+        mock_cache = Mock()
+        mock_cache.get = Mock(return_value=None)  # No cache hits
+        mock_cache.set = Mock()
+
+        mock_pricing = AsyncMock()
+        mock_pricing.get_products = AsyncMock(return_value={
+            'PriceList': [
+                '{"product":{"attributes":{"location":"US East (N. Virginia)"}},"terms":{"OnDemand":{"term1":{"priceDimensions":{"dim1":{"unit":"Hrs","pricePerUnit":{"USD":"0.0104"}}}}}}}'
+            ]
+        })
+        mock_pricing.__aenter__ = AsyncMock(return_value=mock_pricing)
+        mock_pricing.__aexit__ = AsyncMock(return_value=None)
+
+        mock_async_client.get_pricing_client = Mock(return_value=mock_pricing)
+
+        with patch('src.services.async_pricing_service.get_pricing_cache', return_value=mock_cache):
+            service = AsyncPricingService(mock_async_client, use_cache=True, settings=mock_settings)
+
+            results, metrics = await service.get_on_demand_prices_batch(
+                ["t3.micro", "t3.small"],
+                "us-east-1",
+                concurrency=1,
+                return_metrics=True
+            )
+
+            # All should be API calls (no cache hits)
+            assert metrics.cache_hits == 0
+            assert metrics.api_calls == 2
+            assert metrics.successful_fetches == 2

@@ -4,21 +4,19 @@ from src.services.instance_service import InstanceService
 from src.services.pricing_service import PricingService
 from src.cli.output import get_formatter
 
-from .base import status, print_error, get_aws_client, fetch_instance_pricing, write_output
+from .base import (
+    status, print_error, get_aws_client, fetch_instance_pricing, write_output,
+    get_instance_by_name
+)
 
 
 def cmd_pricing(args) -> int:
     """Get pricing information command"""
     formatter = get_formatter(args.format)
     aws_client = get_aws_client(args.region, args.profile)
-    instance_service = InstanceService(aws_client)
 
     try:
-        status("Fetching instance type information...", args.quiet)
-        instances = instance_service.get_instance_types()
-
-        # Find the instance
-        instance = next((inst for inst in instances if inst.instance_type == args.instance_type), None)
+        instance = get_instance_by_name(aws_client, args.instance_type, args.region, args.quiet)
         if not instance:
             print_error(f"Instance type '{args.instance_type}' not found in region {args.region}")
             return 1
@@ -44,21 +42,15 @@ def cmd_pricing(args) -> int:
 def cmd_cost_estimate(args) -> int:
     """Cost estimate command"""
     aws_client = get_aws_client(args.region, args.profile)
-    instance_service = InstanceService(aws_client)
 
     try:
-        status(f"Fetching instance type {args.instance_type} in {args.region}...", args.quiet)
-
-        instances = instance_service.get_instance_types(fetch_pricing=False)
-        instance = next((i for i in instances if i.instance_type == args.instance_type), None)
-
+        instance = get_instance_by_name(aws_client, args.instance_type, args.region, args.quiet)
         if not instance:
             print_error(f"Instance type '{args.instance_type}' not found in region {args.region}")
             return 1
 
         # Fetch pricing
         status("Fetching pricing information...", args.quiet)
-
         pricing_service = PricingService(aws_client)
         instance.pricing = fetch_instance_pricing(
             pricing_service, args.instance_type, args.region

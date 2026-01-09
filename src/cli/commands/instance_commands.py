@@ -4,12 +4,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.services.instance_service import InstanceService
 from src.services.pricing_service import PricingService
-from src.services.free_tier_service import FreeTierService
+from src.services.filter_service import FilterCriteria, apply_filters
 from src.models.instance_type import InstanceType, PricingInfo
 from src.cli.output import get_formatter
 from src.config.settings import Settings
 
-from .base import status, print_error, get_aws_client, fetch_instance_pricing, write_output
+from .base import (
+    status, print_error, get_aws_client, fetch_instance_pricing, write_output,
+    get_instance_by_name, get_instances_by_names
+)
 
 
 def cmd_list(args) -> int:
@@ -22,15 +25,20 @@ def cmd_list(args) -> int:
         status(f"Fetching instance types for region {args.region}...", args.quiet)
         instances = instance_service.get_instance_types(fetch_pricing=args.include_pricing)
 
-        # Apply filters
-        instances = _apply_filters(instances, args)
+        # Apply non-price filters using unified filter service
+        criteria = FilterCriteria.from_cli_args(args)
+        instances = apply_filters(instances, criteria)
 
         # Fetch pricing if requested and not already fetched
         if args.include_pricing and instances:
             instances = _fetch_pricing_for_instances(instances, args)
 
-        # Apply price range filter (after pricing is fetched)
-        instances = _apply_price_filter(instances, args)
+        # Re-apply price filters after pricing is fetched
+        if criteria.min_price is not None or criteria.max_price is not None:
+            instances = apply_filters(instances, FilterCriteria(
+                min_price=criteria.min_price,
+                max_price=criteria.max_price
+            ))
 
         # Sort instances
         instances = sorted(instances, key=lambda x: x.instance_type)
@@ -50,14 +58,9 @@ def cmd_show(args) -> int:
     """Show instance details command"""
     formatter = get_formatter(args.format)
     aws_client = get_aws_client(args.region, args.profile)
-    instance_service = InstanceService(aws_client)
 
     try:
-        status(f"Fetching instance types for region {args.region}...", args.quiet)
-        instances = instance_service.get_instance_types()
-
-        # Find the instance
-        instance = next((inst for inst in instances if inst.instance_type == args.instance_type), None)
+        instance = get_instance_by_name(aws_client, args.instance_type, args.region, args.quiet)
         if not instance:
             print_error(f"Instance type '{args.instance_type}' not found in region {args.region}")
             return 1
@@ -90,15 +93,15 @@ def cmd_compare(args) -> int:
     """Compare two instance types command"""
     formatter = get_formatter(args.format)
     aws_client = get_aws_client(args.region, args.profile)
-    instance_service = InstanceService(aws_client)
 
     try:
-        status(f"Fetching instance types for region {args.region}...", args.quiet)
-        instances = instance_service.get_instance_types()
-
-        # Find both instances
-        instance1 = next((inst for inst in instances if inst.instance_type == args.instance_type1), None)
-        instance2 = next((inst for inst in instances if inst.instance_type == args.instance_type2), None)
+        found = get_instances_by_names(
+            aws_client,
+            [args.instance_type1, args.instance_type2],
+            args.region,
+            args.quiet
+        )
+        instance1, instance2 = found[0], found[1]
 
         if not instance1:
             print_error(f"Instance type '{args.instance_type1}' not found in region {args.region}")
@@ -278,115 +281,6 @@ def cmd_regions(args) -> int:
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
-def _apply_filters(instances: list, args) -> list:
-    """Apply all non-price filters to instances."""
-    if args.search:
-        search_lower = args.search.lower()
-        instances = [inst for inst in instances if search_lower in inst.instance_type.lower()]
-
-    if args.free_tier_only:
-        free_tier_service = FreeTierService()
-        instances = [inst for inst in instances if free_tier_service.is_eligible(inst.instance_type)]
-
-    if args.family:
-        instances = [inst for inst in instances if inst.instance_type.startswith(args.family)]
-
-    # Storage type filter
-    if hasattr(args, 'storage_type') and args.storage_type:
-        if args.storage_type == "ebs-only":
-            instances = [
-                inst for inst in instances
-                if inst.instance_storage_info is None or inst.instance_storage_info.total_size_in_gb is None or inst.instance_storage_info.total_size_in_gb == 0
-            ]
-        elif args.storage_type == "instance-store":
-            instances = [
-                inst for inst in instances
-                if inst.instance_storage_info and inst.instance_storage_info.total_size_in_gb and inst.instance_storage_info.total_size_in_gb > 0
-            ]
-
-    # NVMe support filter
-    if hasattr(args, 'nvme') and args.nvme:
-        if args.nvme == "required":
-            instances = [inst for inst in instances if inst.instance_storage_info and inst.instance_storage_info.nvme_support == "required"]
-        elif args.nvme == "supported":
-            instances = [inst for inst in instances if inst.instance_storage_info and inst.instance_storage_info.nvme_support == "supported"]
-        elif args.nvme == "unsupported":
-            instances = [inst for inst in instances if not inst.instance_storage_info or not inst.instance_storage_info.nvme_support or inst.instance_storage_info.nvme_support == "unsupported"]
-
-    # Processor family filter
-    if hasattr(args, 'processor_family') and args.processor_family:
-        instances = _apply_processor_filter(instances, args.processor_family)
-
-    # Network performance filter
-    if hasattr(args, 'network_performance') and args.network_performance:
-        instances = _apply_network_filter(instances, args.network_performance)
-
-    return instances
-
-
-def _apply_processor_filter(instances: list, processor_family: str) -> list:
-    """Apply processor family filter."""
-    def is_amd_instance(instance_type: str) -> bool:
-        """Check if instance type is AMD (has 'a' suffix before size)"""
-        parts = instance_type.split('.')
-        if len(parts) >= 1:
-            family_part = parts[0]
-            return family_part.endswith('a') and not family_part.endswith('ga')
-        return False
-
-    if processor_family == "intel":
-        return [
-            inst for inst in instances
-            if not is_amd_instance(inst.instance_type) and "arm64" not in inst.processor_info.supported_architectures
-        ]
-    elif processor_family == "amd":
-        return [inst for inst in instances if is_amd_instance(inst.instance_type)]
-    elif processor_family == "graviton":
-        return [inst for inst in instances if "arm64" in inst.processor_info.supported_architectures]
-
-    return instances
-
-
-def _apply_network_filter(instances: list, network_performance: str) -> list:
-    """Apply network performance filter."""
-    perf_map = {
-        "low": ["low", "very low", "up to 5 gigabit"],
-        "moderate": ["moderate", "up to 10 gigabit", "up to 12 gigabit"],
-        "high": ["high", "10 gigabit", "12 gigabit", "25 gigabit", "up to 25 gigabit"],
-        "very-high": ["50 gigabit", "100 gigabit", "200 gigabit", "up to 100 gigabit", "up to 200 gigabit"]
-    }
-    target_perfs = perf_map.get(network_performance, [])
-    return [
-        inst for inst in instances
-        if any(perf.lower() in inst.network_info.network_performance.lower() for perf in target_perfs)
-    ]
-
-
-def _apply_price_filter(instances: list, args) -> list:
-    """Apply price range filter (after pricing is fetched)."""
-    if not hasattr(args, 'min_price') and not hasattr(args, 'max_price'):
-        return instances
-
-    min_price = getattr(args, 'min_price', None)
-    max_price = getattr(args, 'max_price', None)
-
-    if min_price is None and max_price is None:
-        return instances
-
-    def matches_price_range(inst):
-        if not inst.pricing or inst.pricing.on_demand_price is None:
-            return True  # Keep instances without pricing
-
-        price = inst.pricing.on_demand_price
-        if min_price is not None and price < min_price:
-            return False
-        if max_price is not None and price > max_price:
-            return False
-        return True
-
-    return [inst for inst in instances if matches_price_range(inst)]
-
 
 def _fetch_pricing_for_instances(instances: list, args) -> list:
     """Fetch pricing for a list of instances."""

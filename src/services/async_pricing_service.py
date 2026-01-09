@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import time
+from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Callable
 from decimal import Decimal
 from botocore.exceptions import ClientError, BotoCoreError
@@ -18,6 +20,91 @@ logger = logging.getLogger("instancepedia")
 CacheHitCallback = Callable[[], None]
 PriceCallback = Callable[[str, Optional[float]], None]
 ProgressCallback = Callable[[int, int], None]
+
+
+@dataclass
+class PricingMetrics:
+    """Tracks pricing fetch performance metrics.
+
+    Used to collect and report statistics about pricing operations
+    for both user display and debugging.
+    """
+    total_requests: int = 0
+    cache_hits: int = 0
+    api_calls: int = 0
+    successful_fetches: int = 0
+    failed_fetches: int = 0
+    start_time: float = field(default_factory=time.time)
+    end_time: Optional[float] = None
+
+    @property
+    def cache_hit_rate(self) -> float:
+        """Calculate cache hit percentage."""
+        if self.total_requests == 0:
+            return 0.0
+        return (self.cache_hits / self.total_requests) * 100
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate overall success percentage."""
+        if self.total_requests == 0:
+            return 0.0
+        return (self.successful_fetches / self.total_requests) * 100
+
+    @property
+    def elapsed_time(self) -> float:
+        """Get elapsed time in seconds."""
+        end = self.end_time if self.end_time else time.time()
+        return end - self.start_time
+
+    @property
+    def requests_per_second(self) -> float:
+        """Calculate throughput in requests per second."""
+        elapsed = self.elapsed_time
+        if elapsed <= 0:
+            return 0.0
+        return self.total_requests / elapsed
+
+    def record_cache_hit(self) -> None:
+        """Record a cache hit."""
+        self.cache_hits += 1
+        self.total_requests += 1
+        self.successful_fetches += 1
+
+    def record_api_call(self, success: bool) -> None:
+        """Record an API call result."""
+        self.api_calls += 1
+        self.total_requests += 1
+        if success:
+            self.successful_fetches += 1
+        else:
+            self.failed_fetches += 1
+
+    def finish(self) -> None:
+        """Mark the metrics collection as complete."""
+        self.end_time = time.time()
+
+    def to_dict(self) -> Dict:
+        """Convert metrics to dictionary."""
+        return {
+            "total_requests": self.total_requests,
+            "cache_hits": self.cache_hits,
+            "api_calls": self.api_calls,
+            "successful_fetches": self.successful_fetches,
+            "failed_fetches": self.failed_fetches,
+            "cache_hit_rate": round(self.cache_hit_rate, 1),
+            "success_rate": round(self.success_rate, 1),
+            "elapsed_time": round(self.elapsed_time, 2),
+            "requests_per_second": round(self.requests_per_second, 1),
+        }
+
+    def summary(self) -> str:
+        """Get a human-readable summary of metrics."""
+        return (
+            f"Pricing: {self.successful_fetches}/{self.total_requests} "
+            f"({self.success_rate:.0f}% success, {self.cache_hit_rate:.0f}% cached) "
+            f"in {self.elapsed_time:.1f}s"
+        )
 
 
 # Region code to Pricing API location name mapping
@@ -580,7 +667,8 @@ class AsyncPricingService:
         concurrency: int = 10,
         progress_callback: Optional[ProgressCallback] = None,
         price_callback: Optional[PriceCallback] = None,
-        cache_hit_callback: Optional[CacheHitCallback] = None
+        cache_hit_callback: Optional[CacheHitCallback] = None,
+        return_metrics: bool = False
     ) -> Dict[str, Optional[float]]:
         """
         Get on-demand prices for multiple instance types concurrently
@@ -592,12 +680,13 @@ class AsyncPricingService:
             progress_callback: Optional callback(completed, total) for progress updates
             price_callback: Optional callback(instance_type, price) called when each price is fetched
             cache_hit_callback: Optional callback() called when a cache hit occurs
+            return_metrics: If True, returns (results, metrics) tuple instead of just results
 
         Returns:
             Dictionary mapping instance_type to price (or None)
+            If return_metrics=True, returns tuple (results, PricingMetrics)
         """
-        import time
-        start_time = time.time()
+        metrics = PricingMetrics()
         logger.info(f"Starting batch pricing fetch: {len(instance_types)} instances, concurrency={concurrency}, delay={self.settings.pricing_request_delay_ms}ms")
 
         semaphore = asyncio.Semaphore(concurrency)
@@ -605,13 +694,35 @@ class AsyncPricingService:
         completed = 0
         total = len(instance_types)
 
+        def metrics_cache_hit_callback():
+            """Internal callback to track cache hits in metrics"""
+            metrics.record_cache_hit()
+            # Also call user's callback if provided
+            if cache_hit_callback:
+                cache_hit_callback()
+
         async def fetch_with_semaphore(inst_type: str):
             nonlocal completed
             async with semaphore:
                 # Small delay to avoid rate limiting (configurable via settings)
                 delay_seconds = self.settings.pricing_request_delay_ms / 1000.0
                 await asyncio.sleep(delay_seconds)
-                price = await self.get_on_demand_price(inst_type, region, cache_hit_callback=cache_hit_callback)
+
+                # Check if this will be a cache hit (for tracking API calls)
+                is_cache_hit = False
+                if self.cache:
+                    cached_price = self.cache.get(region, inst_type, 'on_demand')
+                    is_cache_hit = cached_price is not None
+
+                price = await self.get_on_demand_price(
+                    inst_type, region,
+                    cache_hit_callback=metrics_cache_hit_callback if is_cache_hit else None
+                )
+
+                # Track API call if not a cache hit
+                if not is_cache_hit:
+                    metrics.record_api_call(success=price is not None)
+
                 results[inst_type] = price
                 completed += 1
                 # Call price callback first so instance is updated before progress callback
@@ -627,13 +738,14 @@ class AsyncPricingService:
         # Run all tasks concurrently
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Log performance metrics
-        elapsed = time.time() - start_time
-        successful = sum(1 for p in results.values() if p is not None)
-        logger.info(f"Batch pricing fetch completed in {elapsed:.2f}s: {successful}/{total} prices fetched ({successful/total*100:.1f}% success rate)")
-        if elapsed > 0:
-            logger.info(f"Performance: {total/elapsed:.1f} requests/second")
+        # Finalize metrics
+        metrics.finish()
+        logger.info(metrics.summary())
+        if metrics.elapsed_time > 0:
+            logger.info(f"Throughput: {metrics.requests_per_second:.1f} requests/second")
 
+        if return_metrics:
+            return results, metrics
         return results
 
     async def get_spot_prices_batch(
