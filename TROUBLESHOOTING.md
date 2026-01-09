@@ -10,6 +10,7 @@ This guide covers common issues you might encounter when using Instancepedia and
 - [Pricing Data Issues](#pricing-data-issues)
 - [TUI Performance and Display](#tui-performance-and-display)
 - [CLI Issues](#cli-issues)
+- [Filter Issues](#filter-issues)
 - [Cache Issues](#cache-issues)
 - [Network and Timeout Issues](#network-and-timeout-issues)
 - [Getting Help](#getting-help)
@@ -556,6 +557,165 @@ Could not connect to the endpoint URL
 4. **Verify file encoding**:
    ```bash
    file out.csv  # Should show UTF-8 or ASCII
+   ```
+
+---
+
+## Filter Issues
+
+### Problem: No GPU instances found with filter
+
+**Symptoms:**
+- Filtering for GPU instances returns empty results
+- `--processor-family` or GPU filters show nothing
+
+**Solutions:**
+
+1. **Check region availability**:
+   - Not all GPU instances are available in every region
+   - Try `us-east-1` or `us-west-2` which have the most GPU options
+   ```bash
+   instancepedia list --region us-east-1 --family g5
+   instancepedia list --region us-east-1 --family p4d
+   ```
+
+2. **Use correct family prefixes**:
+   - GPU instances: `g4dn`, `g5`, `g6`, `p3`, `p4d`, `p5`
+   - Inference: `inf1`, `inf2`
+   - Training: `trn1`
+   ```bash
+   instancepedia search gpu --region us-east-1
+   ```
+
+3. **Check if combining incompatible filters**:
+   ```bash
+   # This won't work - GPU instances aren't ARM/Graviton:
+   instancepedia list --processor-family graviton --family g5  # Empty!
+
+   # This works:
+   instancepedia list --family g5 --region us-east-1
+   ```
+
+### Problem: Price filters not working as expected
+
+**Symptoms:**
+- `--min-price` or `--max-price` filters return unexpected results
+- Some instances missing from filtered results
+
+**Solutions:**
+
+1. **Enable pricing data first**:
+   - Price filters only work when `--include-pricing` is used
+   - Instances without pricing data are NOT filtered out (to avoid hiding them)
+   ```bash
+   # Include pricing to enable price filtering:
+   instancepedia list --include-pricing --max-price 0.10 --region us-east-1
+   ```
+
+2. **Understand what's included**:
+   - Price filters use **on-demand** hourly pricing
+   - Instances with N/A pricing are kept (not filtered)
+   - This prevents hiding instances due to pricing API issues
+
+3. **Check the price range is reasonable**:
+   ```bash
+   # Very small instances start around $0.005/hr
+   # Large instances can be $20+/hr
+   instancepedia list --include-pricing --min-price 0.01 --max-price 0.10
+   ```
+
+### Problem: Storage type filter not matching expected instances
+
+**Symptoms:**
+- `--storage-type ebs-only` or `--storage-type instance-store` returns wrong results
+
+**Solutions:**
+
+1. **Understand the difference**:
+   - `ebs-only`: Instances with NO local instance store (most common)
+   - `instance-store`: Instances WITH local NVMe or SSD storage
+   ```bash
+   # EBS-only instances (t3, m5, c5, etc.):
+   instancepedia list --storage-type ebs-only --region us-east-1
+
+   # Instances with local storage (i3, d2, etc.):
+   instancepedia list --storage-type instance-store --region us-east-1
+   ```
+
+2. **Combine with NVMe filter for high-performance storage**:
+   ```bash
+   # NVMe instance store (fastest local storage):
+   instancepedia list --storage-type instance-store --nvme required
+   ```
+
+### Problem: Processor family filter missing instances
+
+**Symptoms:**
+- `--processor-family intel` missing some Intel instances
+- AMD or Graviton filter not matching expected types
+
+**Solutions:**
+
+1. **Understand the detection logic**:
+   - **Intel**: Default for x86_64 instances without 'a' suffix
+   - **AMD**: Instances with 'a' suffix (e.g., `m5a`, `c5a`, `r6a`)
+   - **Graviton**: ARM64 architecture instances (e.g., `m6g`, `c7g`, `t4g`)
+
+2. **Some edge cases**:
+   ```bash
+   # Metal instances may not match processor filters:
+   instancepedia list --family m5 --processor-family intel
+
+   # Graviton includes all ARM instances:
+   instancepedia list --processor-family graviton  # t4g, m6g, c7g, etc.
+   ```
+
+3. **Verify with show command**:
+   ```bash
+   instancepedia show m5a.large --region us-east-1
+   # Check "Processor" field to verify architecture
+   ```
+
+### Problem: Network performance filter too broad/narrow
+
+**Symptoms:**
+- `--network-performance` returns too many or too few results
+
+**Solutions:**
+
+1. **Understand the tiers**:
+   - `low`: Up to 5 Gbps (small instances)
+   - `moderate`: 5-12 Gbps (medium instances)
+   - `high`: 12-25 Gbps (large instances)
+   - `very-high`: 25+ Gbps (xlarge and metal instances)
+
+2. **Combine with other filters for precision**:
+   ```bash
+   # High network + compute optimized:
+   instancepedia list --network-performance very-high --family c6i
+
+   # Moderate network + memory optimized:
+   instancepedia list --network-performance moderate --family r6i
+   ```
+
+### Problem: Free tier filter shows nothing
+
+**Symptoms:**
+- `--free-tier-only` returns empty results
+
+**Solutions:**
+
+1. **Only t2.micro and t3.micro are free tier eligible**:
+   ```bash
+   instancepedia list --free-tier-only --region us-east-1
+   # Should show t2.micro and t3.micro only
+   ```
+
+2. **Check region**:
+   - Free tier is available in most regions
+   - But instance availability varies
+   ```bash
+   instancepedia list --free-tier-only --region eu-west-1
    ```
 
 ---
