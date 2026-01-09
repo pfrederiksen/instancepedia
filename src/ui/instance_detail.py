@@ -1,5 +1,6 @@
 """Instance type detail screen"""
 
+import asyncio
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, ScrollableContainer
 from textual.widgets import Static, Label
@@ -360,7 +361,7 @@ class InstanceDetail(Screen):
             needs_ri_3yr_no or needs_ri_3yr_partial or needs_ri_3yr_all):
 
             async def fetch_pricing():
-                """Async worker to fetch spot price and savings plans"""
+                """Async worker to fetch spot price, savings plans, and RI pricing"""
                 try:
                     # Get region and settings from app
                     if hasattr(self.app, 'current_region') and self.app.current_region:
@@ -369,7 +370,7 @@ class InstanceDetail(Screen):
 
                         DebugLog.log(f"Fetching additional pricing for {inst.instance_type} in {region}")
 
-                        # Use async context manager for proper resource management
+                        # Use async with for proper resource management
                         async with AsyncAWSClient(
                             region,
                             settings.aws_profile if settings else None,
@@ -444,8 +445,15 @@ class InstanceDetail(Screen):
                             except Exception as e:
                                 DebugLog.log(f"Error updating UI after pricing fetch: {e}")
 
+                        # async with will handle cleanup automatically via __aexit__
+                        DebugLog.log("Async client context exited, cleanup should be complete")
+
                     else:
                         DebugLog.log("Cannot fetch pricing: region not set")
+                except asyncio.CancelledError:
+                    DebugLog.log(f"Pricing fetch cancelled for {inst.instance_type}")
+                    # Re-raise to let the worker handle it
+                    raise
                 except Exception as e:
                     DebugLog.log(f"Error fetching pricing for {inst.instance_type}: {e}")
 
