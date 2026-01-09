@@ -1,6 +1,5 @@
 """Instance-related CLI commands"""
 
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.services.instance_service import InstanceService
@@ -10,7 +9,7 @@ from src.models.instance_type import InstanceType, PricingInfo
 from src.cli.output import get_formatter
 from src.config.settings import Settings
 
-from .base import print_error, get_aws_client, fetch_instance_pricing, write_output
+from .base import status, print_error, get_aws_client, fetch_instance_pricing, write_output
 
 
 def cmd_list(args) -> int:
@@ -20,7 +19,7 @@ def cmd_list(args) -> int:
     instance_service = InstanceService(aws_client)
 
     try:
-        print(f"Fetching instance types for region {args.region}...", file=sys.stderr)
+        status(f"Fetching instance types for region {args.region}...", args.quiet)
         instances = instance_service.get_instance_types(fetch_pricing=args.include_pricing)
 
         # Apply filters
@@ -54,18 +53,18 @@ def cmd_show(args) -> int:
     instance_service = InstanceService(aws_client)
 
     try:
-        print(f"Fetching instance types for region {args.region}...", file=sys.stderr)
+        status(f"Fetching instance types for region {args.region}...", args.quiet)
         instances = instance_service.get_instance_types()
 
         # Find the instance
         instance = next((inst for inst in instances if inst.instance_type == args.instance_type), None)
         if not instance:
-            print(f"Error: Instance type '{args.instance_type}' not found in region {args.region}", file=sys.stderr)
+            print_error(f"Instance type '{args.instance_type}' not found in region {args.region}")
             return 1
 
         # Fetch pricing if requested
         if args.include_pricing:
-            print("Fetching pricing information...", file=sys.stderr)
+            status("Fetching pricing information...", args.quiet)
             pricing_service = PricingService(aws_client)
             instance.pricing = fetch_instance_pricing(
                 pricing_service, instance.instance_type, args.region, include_ri=True
@@ -94,7 +93,7 @@ def cmd_compare(args) -> int:
     instance_service = InstanceService(aws_client)
 
     try:
-        print(f"Fetching instance types for region {args.region}...", file=sys.stderr)
+        status(f"Fetching instance types for region {args.region}...", args.quiet)
         instances = instance_service.get_instance_types()
 
         # Find both instances
@@ -102,15 +101,15 @@ def cmd_compare(args) -> int:
         instance2 = next((inst for inst in instances if inst.instance_type == args.instance_type2), None)
 
         if not instance1:
-            print(f"Error: Instance type '{args.instance_type1}' not found in region {args.region}", file=sys.stderr)
+            print_error(f"Instance type '{args.instance_type1}' not found in region {args.region}")
             return 1
         if not instance2:
-            print(f"Error: Instance type '{args.instance_type2}' not found in region {args.region}", file=sys.stderr)
+            print_error(f"Instance type '{args.instance_type2}' not found in region {args.region}")
             return 1
 
         # Fetch pricing if requested
         if args.include_pricing:
-            print("Fetching pricing information...", file=sys.stderr)
+            status("Fetching pricing information...", args.quiet)
             pricing_service = PricingService(aws_client)
 
             for instance in [instance1, instance2]:
@@ -143,8 +142,7 @@ def cmd_compare_family(args) -> int:
     instance_service = InstanceService(aws_client)
 
     try:
-        if not args.quiet:
-            print(f"Fetching {args.family} family instances from {args.region}...", file=sys.stderr)
+        status(f"Fetching {args.family} family instances from {args.region}...", args.quiet)
 
         instances = instance_service.get_instance_types(fetch_pricing=False)
 
@@ -152,13 +150,12 @@ def cmd_compare_family(args) -> int:
         family_instances = [i for i in instances if i.instance_type.startswith(args.family + '.')]
 
         if not family_instances:
-            print(f"Error: No instances found for family '{args.family}' in region {args.region}", file=sys.stderr)
+            print_error(f"No instances found for family '{args.family}' in region {args.region}")
             return 1
 
         # Fetch pricing if requested
         if args.include_pricing:
-            if not args.quiet:
-                print(f"Fetching pricing for {len(family_instances)} instances...", file=sys.stderr)
+            status(f"Fetching pricing for {len(family_instances)} instances...", args.quiet)
 
             settings = Settings()
             pricing_service = PricingService(aws_client, settings=settings)
@@ -393,7 +390,7 @@ def _apply_price_filter(instances: list, args) -> list:
 
 def _fetch_pricing_for_instances(instances: list, args) -> list:
     """Fetch pricing for a list of instances."""
-    print("Fetching pricing information...", file=sys.stderr)
+    status("Fetching pricing information...", args.quiet)
     settings = Settings()
     aws_client = get_aws_client(args.region, args.profile)
     pricing_service = PricingService(aws_client, settings=settings)
@@ -418,7 +415,7 @@ def _fetch_pricing_for_instances(instances: list, args) -> list:
         completed = 0
         for future in as_completed(futures):
             completed += 1
-            if not args.quiet and completed % 10 == 0:
-                print(f"Fetched pricing for {completed}/{len(instances)} instances...", file=sys.stderr)
+            if completed % 10 == 0:
+                status(f"Fetched pricing for {completed}/{len(instances)} instances...", args.quiet)
 
     return instances

@@ -1,12 +1,10 @@
 """Pricing-related CLI commands"""
 
-import sys
-
 from src.services.instance_service import InstanceService
 from src.services.pricing_service import PricingService
 from src.cli.output import get_formatter
 
-from .base import print_error, get_aws_client, fetch_instance_pricing, write_output
+from .base import status, print_error, get_aws_client, fetch_instance_pricing, write_output
 
 
 def cmd_pricing(args) -> int:
@@ -16,17 +14,17 @@ def cmd_pricing(args) -> int:
     instance_service = InstanceService(aws_client)
 
     try:
-        print(f"Fetching instance type information...", file=sys.stderr)
+        status("Fetching instance type information...", args.quiet)
         instances = instance_service.get_instance_types()
 
         # Find the instance
         instance = next((inst for inst in instances if inst.instance_type == args.instance_type), None)
         if not instance:
-            print(f"Error: Instance type '{args.instance_type}' not found in region {args.region}", file=sys.stderr)
+            print_error(f"Instance type '{args.instance_type}' not found in region {args.region}")
             return 1
 
         # Fetch pricing
-        print("Fetching pricing information...", file=sys.stderr)
+        status("Fetching pricing information...", args.quiet)
         pricing_service = PricingService(aws_client)
         instance.pricing = fetch_instance_pricing(
             pricing_service, instance.instance_type, args.region
@@ -49,19 +47,17 @@ def cmd_cost_estimate(args) -> int:
     instance_service = InstanceService(aws_client)
 
     try:
-        if not args.quiet:
-            print(f"Fetching instance type {args.instance_type} in {args.region}...", file=sys.stderr)
+        status(f"Fetching instance type {args.instance_type} in {args.region}...", args.quiet)
 
         instances = instance_service.get_instance_types(fetch_pricing=False)
         instance = next((i for i in instances if i.instance_type == args.instance_type), None)
 
         if not instance:
-            print(f"Error: Instance type '{args.instance_type}' not found in region {args.region}", file=sys.stderr)
+            print_error(f"Instance type '{args.instance_type}' not found in region {args.region}")
             return 1
 
         # Fetch pricing
-        if not args.quiet:
-            print("Fetching pricing information...", file=sys.stderr)
+        status("Fetching pricing information...", args.quiet)
 
         pricing_service = PricingService(aws_client)
         instance.pricing = fetch_instance_pricing(
@@ -90,7 +86,7 @@ def cmd_cost_estimate(args) -> int:
             model_name = "3-Year Savings Plan"
 
         if price_per_hour is None:
-            print(f"Error: {model_name} pricing not available for {args.instance_type}", file=sys.stderr)
+            print_error(f"{model_name} pricing not available for {args.instance_type}")
             return 1
 
         # Calculate costs
@@ -137,8 +133,7 @@ def cmd_compare_regions(args) -> int:
     regions = [r.strip() for r in args.regions.split(',')]
 
     try:
-        if not args.quiet:
-            print(f"Fetching {args.instance_type} from {len(regions)} regions...", file=sys.stderr)
+        status(f"Fetching {args.instance_type} from {len(regions)} regions...", args.quiet)
 
         results = []
 
@@ -198,8 +193,8 @@ def cmd_compare_regions(args) -> int:
             for r in results:
                 on_demand = f"${r['on_demand']:.4f}/hr" if r.get('on_demand') else "N/A"
                 spot = f"${r['spot']:.4f}/hr" if r.get('spot') else "N/A"
-                status = r.get('error', 'OK')
-                rows.append([r['region'], on_demand, spot, status])
+                result_status = r.get('error', 'OK')
+                rows.append([r['region'], on_demand, spot, result_status])
 
             output = f"Pricing comparison for {args.instance_type} across regions:\n\n"
             output += tabulate(rows, headers=headers, tablefmt="grid")
@@ -219,9 +214,8 @@ def cmd_spot_history(args) -> int:
         aws_client = get_aws_client(args.region, args.profile)
         pricing_service = PricingService(aws_client)
 
-        if not args.quiet:
-            print(f"Fetching spot price history for {args.instance_type} in {args.region}...", file=sys.stderr)
-            print(f"Looking back {args.days} days...", file=sys.stderr)
+        status(f"Fetching spot price history for {args.instance_type} in {args.region}...", args.quiet)
+        status(f"Looking back {args.days} days...", args.quiet)
 
         history = pricing_service.get_spot_price_history(
             args.instance_type,
@@ -230,7 +224,7 @@ def cmd_spot_history(args) -> int:
         )
 
         if not history:
-            print(f"No spot price history available for {args.instance_type} in {args.region}", file=sys.stderr)
+            print_error(f"No spot price history available for {args.instance_type} in {args.region}")
             return 1
 
         # Format output

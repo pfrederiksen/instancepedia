@@ -33,6 +33,8 @@ from .preset_commands import (
     cmd_presets_apply,
 )
 from .base import (
+    status,
+    progress,
     print_error,
     get_aws_client,
     fetch_instance_pricing,
@@ -69,6 +71,8 @@ __all__ = [
     'cmd_presets_list',
     'cmd_presets_apply',
     # Base utilities
+    'status',
+    'progress',
     'print_error',
     'get_aws_client',
     'fetch_instance_pricing',

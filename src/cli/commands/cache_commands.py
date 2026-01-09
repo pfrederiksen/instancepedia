@@ -1,12 +1,11 @@
 """Cache management CLI commands"""
 
 import logging
-import sys
 
 from src.cache import get_pricing_cache
 from src.cli.output import get_formatter
 
-from .base import print_error
+from .base import status, print_error
 
 logger = logging.getLogger("instancepedia")
 
@@ -63,7 +62,7 @@ def cmd_cache_clear(args) -> int:
 
             response = input(confirm_msg)
             if response.lower() != 'y':
-                print("Aborted.", file=sys.stderr)
+                status("Aborted.")
                 return 0
 
         # Clear cache

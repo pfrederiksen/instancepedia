@@ -1,6 +1,5 @@
 """Filter preset CLI commands"""
 
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.services.instance_service import InstanceService
@@ -11,7 +10,7 @@ from src.models.instance_type import InstanceType, PricingInfo
 from src.cli.output import get_formatter
 from src.config.settings import Settings
 
-from .base import print_error, get_aws_client, write_output
+from .base import status, print_error, get_aws_client, write_output
 
 
 def cmd_presets_list(args) -> int:
@@ -53,7 +52,7 @@ def cmd_presets_list(args) -> int:
 
         return 0
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        print_error(str(e))
         return 1
 
 
@@ -64,15 +63,14 @@ def cmd_presets_apply(args) -> int:
         preset = preset_service.get_preset(args.preset_name)
 
         if not preset:
-            print(f"Error: Preset '{args.preset_name}' not found", file=sys.stderr)
-            print(f"Use 'instancepedia presets list' to see available presets", file=sys.stderr)
+            print_error(f"Preset '{args.preset_name}' not found")
+            status("Use 'instancepedia presets list' to see available presets")
             return 1
 
-        if not args.quiet:
-            print(f"Applying preset: {preset.name}", file=sys.stderr)
-            if preset.description:
-                print(f"Description: {preset.description}", file=sys.stderr)
-            print(f"Fetching instance types for region {args.region}...", file=sys.stderr)
+        status(f"Applying preset: {preset.name}", args.quiet)
+        if preset.description:
+            status(f"Description: {preset.description}", args.quiet)
+        status(f"Fetching instance types for region {args.region}...", args.quiet)
 
         # Fetch instances
         formatter = get_formatter(args.format)
@@ -83,8 +81,7 @@ def cmd_presets_apply(args) -> int:
         # Apply preset filters
         filtered_instances = _apply_preset_filters(instances, preset)
 
-        if not args.quiet:
-            print(f"Found {len(filtered_instances)} instances matching preset criteria", file=sys.stderr)
+        status(f"Found {len(filtered_instances)} instances matching preset criteria", args.quiet)
 
         # Fetch pricing if requested
         if args.include_pricing and filtered_instances:
@@ -146,8 +143,7 @@ def _apply_preset_filters(instances: list, preset) -> list:
 
 def _fetch_pricing_for_preset(instances: list, args) -> list:
     """Fetch pricing for preset-filtered instances."""
-    if not args.quiet:
-        print("Fetching pricing information...", file=sys.stderr)
+    status("Fetching pricing information...", args.quiet)
 
     settings = Settings()
     aws_client = get_aws_client(args.region, args.profile)

@@ -11,6 +11,30 @@ from src.models.instance_type import PricingInfo
 logger = logging.getLogger("instancepedia")
 
 
+def status(message: str, quiet: bool = False) -> None:
+    """Print status message to stderr unless quiet mode is on.
+
+    Args:
+        message: Status message to display
+        quiet: Whether to suppress the message
+    """
+    if not quiet:
+        print(message, file=sys.stderr)
+
+
+def progress(completed: int, total: int, item_type: str = "items", quiet: bool = False) -> None:
+    """Print progress message to stderr unless quiet mode is on.
+
+    Args:
+        completed: Number of items completed
+        total: Total number of items
+        item_type: Description of items being processed
+        quiet: Whether to suppress the message
+    """
+    if not quiet:
+        print(f"Processed {completed}/{total} {item_type}...", file=sys.stderr)
+
+
 def print_error(message: str, debug: bool = False, exception: Exception = None) -> None:
     """Print error message to stderr with consistent formatting.
 
