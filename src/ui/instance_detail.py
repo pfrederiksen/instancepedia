@@ -1,5 +1,6 @@
 """Instance type detail screen"""
 
+import asyncio
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, ScrollableContainer
 from textual.widgets import Static, Label
@@ -361,6 +362,7 @@ class InstanceDetail(Screen):
 
             async def fetch_pricing():
                 """Async worker to fetch spot price and savings plans"""
+                async_client = None
                 try:
                     # Get region and settings from app
                     if hasattr(self.app, 'current_region') and self.app.current_region:
@@ -369,15 +371,18 @@ class InstanceDetail(Screen):
 
                         DebugLog.log(f"Fetching additional pricing for {inst.instance_type} in {region}")
 
-                        # Use async context manager for proper resource management
-                        async with AsyncAWSClient(
+                        # Create async client and enter context
+                        async_client = AsyncAWSClient(
                             region,
                             settings.aws_profile if settings else None,
                             connect_timeout=settings.aws_connect_timeout if settings else 10,
                             read_timeout=settings.aws_read_timeout if settings else 60,
                             pricing_timeout=settings.pricing_read_timeout if settings else 90,
                             max_pool_connections=settings.max_pool_connections if settings else 50
-                        ) as async_client:
+                        )
+                        await async_client.__aenter__()
+
+                        try:
                             pricing_service = AsyncPricingService(async_client, settings=settings)
 
                             # Fetch spot price if needed
@@ -444,8 +449,21 @@ class InstanceDetail(Screen):
                             except Exception as e:
                                 DebugLog.log(f"Error updating UI after pricing fetch: {e}")
 
+                        finally:
+                            # Ensure async client is properly closed
+                            if async_client is not None:
+                                try:
+                                    await async_client.__aexit__(None, None, None)
+                                    DebugLog.log("Async client closed")
+                                except Exception as e:
+                                    DebugLog.log(f"Error closing async client: {e}")
+
                     else:
                         DebugLog.log("Cannot fetch pricing: region not set")
+                except asyncio.CancelledError:
+                    DebugLog.log(f"Pricing fetch cancelled for {inst.instance_type}")
+                    # Re-raise to let the worker handle it
+                    raise
                 except Exception as e:
                     DebugLog.log(f"Error fetching pricing for {inst.instance_type}: {e}")
 
