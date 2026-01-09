@@ -1,11 +1,52 @@
 """Async AWS client wrapper using aioboto3"""
 
 import aioboto3
+import aiohttp
 import asyncio
+import atexit
+import gc
+import weakref
 from typing import Optional
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from botocore.exceptions import ClientError, NoCredentialsError, BotoCoreError
 from botocore.config import Config
+
+
+# Global registry of all AsyncAWSClient instances for cleanup at exit
+_active_clients: weakref.WeakSet = weakref.WeakSet()
+
+
+def _cleanup_all_aiohttp_resources():
+    """Force cleanup of any unclosed aiohttp resources at interpreter exit.
+
+    This is a last-resort cleanup that runs when Python exits.
+    It finds any unclosed aiohttp sessions/connectors and closes them.
+    """
+    # First, try to close any registered clients
+    for client in list(_active_clients):
+        try:
+            client._close_connectors_sync()
+        except Exception:
+            pass
+
+    # Then do a GC sweep to find any remaining aiohttp resources
+    gc.collect()
+    for obj in gc.get_objects():
+        try:
+            if isinstance(obj, aiohttp.ClientSession):
+                if not obj.closed:
+                    if obj._connector and not obj._connector.closed:
+                        obj._connector.close()
+                    obj._closed = True
+            elif isinstance(obj, aiohttp.TCPConnector):
+                if not obj.closed:
+                    obj.close()
+        except Exception:
+            pass
+
+
+# Register cleanup at interpreter exit
+atexit.register(_cleanup_all_aiohttp_resources)
 
 
 class AsyncAWSClient:
@@ -41,6 +82,9 @@ class AsyncAWSClient:
         self._ec2_client = None
         self._pricing_client = None
         self._lock = asyncio.Lock()
+        self._exit_stack = AsyncExitStack()
+        # Register in global registry for cleanup at exit
+        _active_clients.add(self)
 
     def _get_session(self) -> aioboto3.Session:
         """Get aioboto3 session (lazy initialization)"""
@@ -57,8 +101,31 @@ class AsyncAWSClient:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit - cleanup resources"""
-        await self.close()
+        # ALWAYS do sync cleanup first to ensure connectors are closed
+        # This prevents warnings even if async cleanup is cancelled
+        self._close_connectors_sync()
+
+        # Then try async cleanup for graceful shutdown
+        try:
+            await self.close()
+        except asyncio.CancelledError:
+            # Sync cleanup already done, just re-raise
+            raise
         return False
+
+    def _close_connectors_sync(self) -> None:
+        """Synchronously close aiohttp connectors and mark sessions as closed.
+
+        This is used when async cleanup is cancelled (e.g., during app exit)
+        to ensure TCP connections are properly closed and no warnings are emitted.
+        """
+        for client in [self._ec2_client, self._pricing_client]:
+            if client is not None:
+                self._close_single_client_sync(client)
+
+        self._ec2_client = None
+        self._pricing_client = None
+        self._session = None
 
     async def _close_client_internal(self, client) -> None:
         """Internal method to close a single client with proper aiohttp cleanup"""
@@ -104,44 +171,41 @@ class AsyncAWSClient:
         """Close all clients and cleanup resources
 
         Properly closes aioboto3 clients and their underlying aiohttp sessions.
-        Uses fire-and-forget tasks to ensure cleanup completes even if the caller is cancelled.
+        Uses AsyncExitStack for proper cleanup, with sync fallback.
         """
-        async with self._lock:
-            clients_to_close = []
+        # FIRST: Do sync cleanup to prevent warnings even if async fails
+        self._close_connectors_sync()
 
-            if self._ec2_client is not None:
-                clients_to_close.append(self._ec2_client)
-                self._ec2_client = None
+        # Then try proper async cleanup via exit stack
+        try:
+            await self._exit_stack.aclose()
+        except Exception:
+            pass
 
-            if self._pricing_client is not None:
-                clients_to_close.append(self._pricing_client)
-                self._pricing_client = None
+        # Clear references
+        self._ec2_client = None
+        self._pricing_client = None
+        self._session = None
 
-            self._session = None
+        # Create new exit stack for potential reuse
+        self._exit_stack = AsyncExitStack()
 
-        # Schedule cleanup tasks that will continue even if this coroutine is cancelled
-        # This is critical for proper aiohttp shutdown
-        cleanup_tasks = []
-        for client in clients_to_close:
-            try:
-                # Create a task that's independent of the current coroutine
-                task = asyncio.create_task(self._close_client_internal(client))
-                cleanup_tasks.append(task)
-            except Exception:
-                pass
-
-        # Wait for cleanup with a timeout, but don't fail if cancelled
-        if cleanup_tasks:
-            try:
-                # Use gather with return_exceptions to not raise on individual failures
-                await asyncio.wait_for(
-                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
-                    timeout=1.0
-                )
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                # If we time out or are cancelled, the tasks will still run
-                # until the event loop stops
-                pass
+    def _close_single_client_sync(self, client) -> None:
+        """Synchronously close a single aioboto3 client's connector and mark session closed."""
+        try:
+            if hasattr(client, '_endpoint'):
+                endpoint = client._endpoint
+                http_session = getattr(endpoint, 'http_session', None) or getattr(endpoint, '_http_session', None)
+                if http_session is not None:
+                    # Close the connector (handles TCP connections)
+                    connector = getattr(http_session, '_connector', None) or getattr(http_session, 'connector', None)
+                    if connector is not None and not getattr(connector, 'closed', True):
+                        connector.close()
+                    # Mark the session as closed to prevent __del__ warning
+                    if hasattr(http_session, '_closed'):
+                        http_session._closed = True
+        except Exception:
+            pass  # Best effort - don't fail on sync cleanup
 
     @asynccontextmanager
     async def get_ec2_client(self):
@@ -161,8 +225,9 @@ class AsyncAWSClient:
                     retries={'max_attempts': 3, 'mode': 'standard'},
                     max_pool_connections=self.max_pool_connections
                 )
-                self._ec2_client = session.client("ec2", region_name=self.region, config=config)
-                self._ec2_client = await self._ec2_client.__aenter__()
+                # Use AsyncExitStack for proper cleanup management
+                client_cm = session.client("ec2", region_name=self.region, config=config)
+                self._ec2_client = await self._exit_stack.enter_async_context(client_cm)
 
         try:
             yield self._ec2_client
@@ -170,10 +235,7 @@ class AsyncAWSClient:
             # On error, close the client so it gets recreated next time
             async with self._lock:
                 if self._ec2_client is not None:
-                    try:
-                        await self._ec2_client.__aexit__(None, None, None)
-                    except Exception:
-                        pass
+                    self._close_single_client_sync(self._ec2_client)
                     self._ec2_client = None
             raise
 
@@ -198,8 +260,9 @@ class AsyncAWSClient:
                     max_pool_connections=self.max_pool_connections
                 )
                 # Pricing API is only available in us-east-1
-                self._pricing_client = session.client("pricing", region_name="us-east-1", config=config)
-                self._pricing_client = await self._pricing_client.__aenter__()
+                # Use AsyncExitStack for proper cleanup management
+                client_cm = session.client("pricing", region_name="us-east-1", config=config)
+                self._pricing_client = await self._exit_stack.enter_async_context(client_cm)
 
         try:
             yield self._pricing_client
@@ -207,10 +270,7 @@ class AsyncAWSClient:
             # On error, close the client so it gets recreated next time
             async with self._lock:
                 if self._pricing_client is not None:
-                    try:
-                        await self._pricing_client.__aexit__(None, None, None)
-                    except Exception:
-                        pass
+                    self._close_single_client_sync(self._pricing_client)
                     self._pricing_client = None
             raise
 
