@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError, BotoCoreError
 from decimal import Decimal
 from datetime import datetime, timedelta
 from dataclasses import dataclass
+import json
 import time
 import logging
 import statistics
@@ -56,6 +57,43 @@ class SpotPriceHistory:
 class PricingService:
     """Service for fetching EC2 instance pricing"""
 
+    # AWS Pricing API uses human-readable location names, not region codes
+    REGION_MAP = {
+        'us-east-1': 'US East (N. Virginia)',
+        'us-east-2': 'US East (Ohio)',
+        'us-west-1': 'US West (N. California)',
+        'us-west-2': 'US West (Oregon)',
+        'us-west-3': 'US West (Phoenix)',
+        'us-west-4': 'US West (Las Vegas)',
+        'us-east-3': 'US East (Columbus)',
+        'af-south-1': 'Africa (Cape Town)',
+        'ap-east-1': 'Asia Pacific (Hong Kong)',
+        'ap-south-1': 'Asia Pacific (Mumbai)',
+        'ap-south-2': 'Asia Pacific (Hyderabad)',
+        'ap-northeast-1': 'Asia Pacific (Tokyo)',
+        'ap-northeast-2': 'Asia Pacific (Seoul)',
+        'ap-northeast-3': 'Asia Pacific (Osaka)',
+        'ap-southeast-1': 'Asia Pacific (Singapore)',
+        'ap-southeast-2': 'Asia Pacific (Sydney)',
+        'ap-southeast-3': 'Asia Pacific (Jakarta)',
+        'ap-southeast-4': 'Asia Pacific (Melbourne)',
+        'ap-southeast-5': 'Asia Pacific (Osaka)',
+        'ca-central-1': 'Canada (Central)',
+        'eu-central-1': 'EU (Frankfurt)',
+        'eu-central-2': 'EU (Zurich)',
+        'eu-west-1': 'EU (Ireland)',
+        'eu-west-2': 'EU (London)',
+        'eu-west-3': 'EU (Paris)',
+        'eu-north-1': 'EU (Stockholm)',
+        'eu-north-2': 'EU (Warsaw)',
+        'eu-south-1': 'EU (Milan)',
+        'eu-south-2': 'EU (Spain)',
+        'me-south-1': 'Middle East (Bahrain)',
+        'me-central-1': 'Middle East (UAE)',
+        'il-central-1': 'Israel (Tel Aviv)',
+        'sa-east-1': 'South America (Sao Paulo)',
+    }
+
     def __init__(self, aws_client: AWSClient, use_cache: bool = True, settings: Optional[Settings] = None):
         """
         Initialize pricing service
@@ -69,6 +107,75 @@ class PricingService:
         self.use_cache = use_cache
         self.cache = get_pricing_cache() if use_cache else None
         self.settings = settings or Settings()
+
+    def _get_pricing_region(self, region: str) -> str:
+        """Map AWS region code to Pricing API location name"""
+        pricing_region = self.REGION_MAP.get(region)
+        if not pricing_region:
+            DebugLog.log(f"Warning: Region {region} not in pricing region map, using region code directly")
+            pricing_region = region
+        return pricing_region
+
+    def _build_ec2_filters(self, instance_type: str, pricing_region: str) -> List[Dict]:
+        """Build common EC2 pricing filters for Pricing API queries"""
+        return [
+            {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
+            {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
+            {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
+            {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
+            {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
+            {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'},
+        ]
+
+    def _parse_hourly_price_from_dimensions(self, price_dimensions: Dict) -> Optional[float]:
+        """
+        Extract hourly USD price from price dimensions.
+
+        Args:
+            price_dimensions: AWS Pricing API priceDimensions dict
+
+        Returns:
+            Hourly price in USD, or None if not found
+        """
+        for dimension_key, dimension_data in price_dimensions.items():
+            unit = dimension_data.get('unit', '')
+            price_per_unit = dimension_data.get('pricePerUnit', {})
+            usd_price = price_per_unit.get('USD')
+            jpy_price = price_per_unit.get('JPY')
+
+            # Convert JPY to USD if needed (approximate rate)
+            if jpy_price and not usd_price:
+                try:
+                    jpy_value = float(Decimal(jpy_price))
+                    if jpy_value > 0:
+                        usd_price = str(jpy_value / 150.0)  # Approximate exchange rate
+                except (ValueError, TypeError):
+                    continue
+
+            # Look for hourly pricing
+            if ('Hrs' in unit or 'Hr' in unit or unit == '') and usd_price:
+                try:
+                    price = float(Decimal(usd_price))
+                    if price > 0:
+                        return price
+                except (ValueError, TypeError):
+                    continue
+        return None
+
+    def _handle_throttling(self, attempt: int, max_retries: int, error: Exception) -> bool:
+        """
+        Handle API throttling with exponential backoff.
+
+        Returns:
+            True if should retry, False if should give up
+        """
+        error_code = getattr(error, 'response', {}).get('Error', {}).get('Code', '')
+        if error_code == 'ThrottlingException' and attempt < max_retries:
+            wait_time = min(2 ** attempt, 30)  # Exponential backoff, max 30 seconds
+            DebugLog.log(f"Rate limited, waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries})")
+            time.sleep(wait_time)
+            return True
+        return False
 
     def get_on_demand_price(self, instance_type: str, region: str, max_retries: int = 3) -> Optional[float]:
         """
@@ -90,61 +197,11 @@ class PricingService:
                 return cached_price
 
         # Cache miss - fetch from AWS
+        pricing_region = self._get_pricing_region(region)
+        filters = self._build_ec2_filters(instance_type, pricing_region)
+
         for attempt in range(max_retries + 1):
             try:
-                # Map region to pricing API region name
-                # AWS Pricing API uses human-readable location names, not region codes
-                region_map = {
-                'us-east-1': 'US East (N. Virginia)',
-                'us-east-2': 'US East (Ohio)',
-                'us-west-1': 'US West (N. California)',
-                'us-west-2': 'US West (Oregon)',
-                'us-west-3': 'US West (Phoenix)',
-                'us-west-4': 'US West (Las Vegas)',
-                'us-east-3': 'US East (Columbus)',
-                'af-south-1': 'Africa (Cape Town)',
-                'ap-east-1': 'Asia Pacific (Hong Kong)',
-                'ap-south-1': 'Asia Pacific (Mumbai)',
-                'ap-south-2': 'Asia Pacific (Hyderabad)',
-                'ap-northeast-1': 'Asia Pacific (Tokyo)',
-                'ap-northeast-2': 'Asia Pacific (Seoul)',
-                'ap-northeast-3': 'Asia Pacific (Osaka)',
-                'ap-southeast-1': 'Asia Pacific (Singapore)',
-                'ap-southeast-2': 'Asia Pacific (Sydney)',
-                'ap-southeast-3': 'Asia Pacific (Jakarta)',
-                'ap-southeast-4': 'Asia Pacific (Melbourne)',
-                'ap-southeast-5': 'Asia Pacific (Osaka)',
-                'ca-central-1': 'Canada (Central)',
-                'eu-central-1': 'EU (Frankfurt)',
-                'eu-central-2': 'EU (Zurich)',
-                'eu-west-1': 'EU (Ireland)',
-                'eu-west-2': 'EU (London)',
-                'eu-west-3': 'EU (Paris)',
-                'eu-north-1': 'EU (Stockholm)',
-                'eu-north-2': 'EU (Warsaw)',
-                'eu-south-1': 'EU (Milan)',
-                'eu-south-2': 'EU (Spain)',
-                'me-south-1': 'Middle East (Bahrain)',
-                'me-central-1': 'Middle East (UAE)',
-                'il-central-1': 'Israel (Tel Aviv)',
-                'sa-east-1': 'South America (Sao Paulo)',  # Note: AWS uses "Sao" without special character
-            }
-            
-                pricing_region = region_map.get(region)
-                if not pricing_region:
-                    # If region not in map, try using region code directly (may not work)
-                    DebugLog.log(f"Warning: Region {region} not in pricing region map, using region code directly")
-                    pricing_region = region
-                
-                # Try to get pricing - use simpler filters first
-                filters = [
-                    {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
-                    {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
-                    {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
-                    {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
-                    {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
-                ]
-                
                 DebugLog.log(f"Querying Pricing API for {instance_type} in {pricing_region} (region code: {region})")
                 response = self.aws_client.pricing_client.get_products(
                     ServiceCode='AmazonEC2',
@@ -159,7 +216,6 @@ class PricingService:
                 DebugLog.log(f"Got PriceList with {len(response['PriceList'])} items for {instance_type}")
                 
                 # Parse all results and find the best match
-                import json
                 best_price = None
                 best_price_data = None
                 
@@ -672,60 +728,11 @@ class PricingService:
             return None
 
         # Cache miss - fetch from AWS
+        pricing_region = self._get_pricing_region(region)
+        filters = self._build_ec2_filters(instance_type, pricing_region)
+
         for attempt in range(max_retries + 1):
             try:
-                # Map region to pricing API region name (reuse from on-demand method)
-                region_map = {
-                    'us-east-1': 'US East (N. Virginia)',
-                    'us-east-2': 'US East (Ohio)',
-                    'us-west-1': 'US West (N. California)',
-                    'us-west-2': 'US West (Oregon)',
-                    'us-west-3': 'US West (Phoenix)',
-                    'us-west-4': 'US West (Las Vegas)',
-                    'us-east-3': 'US East (Columbus)',
-                    'af-south-1': 'Africa (Cape Town)',
-                    'ap-east-1': 'Asia Pacific (Hong Kong)',
-                    'ap-south-1': 'Asia Pacific (Mumbai)',
-                    'ap-south-2': 'Asia Pacific (Hyderabad)',
-                    'ap-northeast-1': 'Asia Pacific (Tokyo)',
-                    'ap-northeast-2': 'Asia Pacific (Seoul)',
-                    'ap-northeast-3': 'Asia Pacific (Osaka)',
-                    'ap-southeast-1': 'Asia Pacific (Singapore)',
-                    'ap-southeast-2': 'Asia Pacific (Sydney)',
-                    'ap-southeast-3': 'Asia Pacific (Jakarta)',
-                    'ap-southeast-4': 'Asia Pacific (Melbourne)',
-                    'ap-southeast-5': 'Asia Pacific (Osaka)',
-                    'ca-central-1': 'Canada (Central)',
-                    'eu-central-1': 'EU (Frankfurt)',
-                    'eu-central-2': 'EU (Zurich)',
-                    'eu-west-1': 'EU (Ireland)',
-                    'eu-west-2': 'EU (London)',
-                    'eu-west-3': 'EU (Paris)',
-                    'eu-north-1': 'EU (Stockholm)',
-                    'eu-north-2': 'EU (Warsaw)',
-                    'eu-south-1': 'EU (Milan)',
-                    'eu-south-2': 'EU (Spain)',
-                    'me-south-1': 'Middle East (Bahrain)',
-                    'me-central-1': 'Middle East (UAE)',
-                    'il-central-1': 'Israel (Tel Aviv)',
-                    'sa-east-1': 'South America (Sao Paulo)',
-                }
-
-                pricing_region = region_map.get(region)
-                if not pricing_region:
-                    DebugLog.log(f"Warning: Region {region} not in pricing region map")
-                    pricing_region = region
-
-                # Query for Reserved pricing with No Upfront
-                filters = [
-                    {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
-                    {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
-                    {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
-                    {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
-                    {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
-                    {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'},
-                ]
-
                 DebugLog.log(f"Querying Pricing API for {lease_length} savings plan: {instance_type} in {pricing_region}")
                 response = self.aws_client.pricing_client.get_products(
                     ServiceCode='AmazonEC2',
@@ -741,7 +748,6 @@ class PricingService:
                     return None
 
                 # Parse results and find Reserved terms
-                import json
                 best_price = None
 
                 for price_list_item in response['PriceList']:
@@ -876,60 +882,11 @@ class PricingService:
             return None
 
         # Cache miss - fetch from AWS
+        pricing_region = self._get_pricing_region(region)
+        filters = self._build_ec2_filters(instance_type, pricing_region)
+
         for attempt in range(max_retries + 1):
             try:
-                # Map region to pricing API region name (reuse from on-demand method)
-                region_map = {
-                    'us-east-1': 'US East (N. Virginia)',
-                    'us-east-2': 'US East (Ohio)',
-                    'us-west-1': 'US West (N. California)',
-                    'us-west-2': 'US West (Oregon)',
-                    'us-west-3': 'US West (Phoenix)',
-                    'us-west-4': 'US West (Las Vegas)',
-                    'us-east-3': 'US East (Columbus)',
-                    'af-south-1': 'Africa (Cape Town)',
-                    'ap-east-1': 'Asia Pacific (Hong Kong)',
-                    'ap-south-1': 'Asia Pacific (Mumbai)',
-                    'ap-south-2': 'Asia Pacific (Hyderabad)',
-                    'ap-northeast-1': 'Asia Pacific (Tokyo)',
-                    'ap-northeast-2': 'Asia Pacific (Seoul)',
-                    'ap-northeast-3': 'Asia Pacific (Osaka)',
-                    'ap-southeast-1': 'Asia Pacific (Singapore)',
-                    'ap-southeast-2': 'Asia Pacific (Sydney)',
-                    'ap-southeast-3': 'Asia Pacific (Jakarta)',
-                    'ap-southeast-4': 'Asia Pacific (Melbourne)',
-                    'ap-southeast-5': 'Asia Pacific (Osaka)',
-                    'ca-central-1': 'Canada (Central)',
-                    'eu-central-1': 'EU (Frankfurt)',
-                    'eu-central-2': 'EU (Zurich)',
-                    'eu-west-1': 'EU (Ireland)',
-                    'eu-west-2': 'EU (London)',
-                    'eu-west-3': 'EU (Paris)',
-                    'eu-north-1': 'EU (Stockholm)',
-                    'eu-north-2': 'EU (Warsaw)',
-                    'eu-south-1': 'EU (Milan)',
-                    'eu-south-2': 'EU (Spain)',
-                    'me-south-1': 'Middle East (Bahrain)',
-                    'me-central-1': 'Middle East (UAE)',
-                    'il-central-1': 'Israel (Tel Aviv)',
-                    'sa-east-1': 'South America (Sao Paulo)',
-                }
-
-                pricing_region = region_map.get(region)
-                if not pricing_region:
-                    DebugLog.log(f"Warning: Region {region} not in pricing region map")
-                    pricing_region = region
-
-                # Query for Reserved Instance pricing
-                filters = [
-                    {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
-                    {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
-                    {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
-                    {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
-                    {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
-                    {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'},
-                ]
-
                 DebugLog.log(f"Querying Pricing API for {lease_length} RI {payment_option}: {instance_type} in {pricing_region}")
                 response = self.aws_client.pricing_client.get_products(
                     ServiceCode='AmazonEC2',
@@ -945,7 +902,6 @@ class PricingService:
                     return None
 
                 # Parse results and find Reserved terms with Standard offering class
-                import json
                 best_price = None
 
                 for price_list_item in response['PriceList']:

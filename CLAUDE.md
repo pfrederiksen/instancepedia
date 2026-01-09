@@ -194,6 +194,25 @@ The CLI provides the following commands for users:
 - `cache clear` - Clear cache entries
 - `spot-history` - Show historical spot price trends with statistics and volatility analysis
 
+### Shell Completions
+
+Tab completion scripts are provided for bash and zsh shells in `scripts/completions/`:
+- `instancepedia.bash` - Bash completion script (source or copy to `/etc/bash_completion.d/`)
+- `_instancepedia` - Zsh completion script (copy to a directory in `$fpath`)
+
+**Features:**
+- Command and subcommand completion
+- Option completion for all commands
+- AWS region suggestions from built-in list
+- Instance family suggestions
+- Filter preset name completion
+- AWS profile completion (reads from `~/.aws/credentials`)
+
+**Implementation Notes:**
+- Both scripts handle nested subcommands (presets list/apply, cache stats/clear)
+- Zsh script includes descriptions for commands and options
+- Region list is hardcoded for instant completion without AWS API calls
+
 ### Filter Presets
 
 Filter presets allow users to quickly apply common filtering scenarios. Built-in presets include:
@@ -733,9 +752,21 @@ async with AsyncAWSClient(
 
 ### Pricing API Region Mapping
 
-The AWS Pricing API requires location names (e.g., "US East (N. Virginia)") not region codes. See `REGION_MAP` in `src/services/async_pricing_service.py`.
+The AWS Pricing API requires location names (e.g., "US East (N. Virginia)") not region codes.
+
+**REGION_MAP locations:**
+- Sync service: `PricingService.REGION_MAP` class constant in `src/services/pricing_service.py`
+- Async service: `REGION_MAP` module constant in `src/services/async_pricing_service.py`
 
 Pricing API is only available in `us-east-1`, so pricing client always uses that region regardless of target region for instance types.
+
+**Helper Methods** (available in both sync and async services):
+- `_get_pricing_region(region)` - Maps AWS region code to Pricing API location name
+- `_build_ec2_filters(instance_type, pricing_region)` - Builds common EC2 pricing filters
+- `_parse_hourly_price_from_dimensions(price_dimensions)` - Extracts hourly USD price (sync only)
+- `_handle_throttling(attempt, max_retries, error)` - Handles API throttling with backoff (sync only)
+
+These helpers consolidate common logic across `get_on_demand_price()`, `get_savings_plan_price()`, and `get_reserved_instance_price()` methods.
 
 ### Debug Mode
 

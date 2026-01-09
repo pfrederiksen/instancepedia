@@ -397,6 +397,10 @@ class InstanceList(Screen):
         elif self._pricing_failed_count > 0:
             # Show failed pricing count and offer retry
             status += f" | ⚠️ {self._pricing_failed_count} prices unavailable (Press R to retry)"
+        elif self._total_prices > 0:
+            # Show cache statistics in status bar
+            cache_pct = (self._cache_hits / self._total_prices * 100) if self._total_prices > 0 else 0
+            status += f" | 📦 Cache: {cache_pct:.0f}%"
 
         self.query_one("#status-text", Static).update(status)
 
@@ -1009,12 +1013,15 @@ class InstanceList(Screen):
                 header.styles.color = "yellow"
             else:
                 # Show final cache statistics (from actual pricing fetch)
-                if self._total_prices > 0 and self._cache_hits > 0:
+                if self._total_prices > 0:
                     cache_pct = (self._cache_hits / self._total_prices * 100) if self._total_prices > 0 else 0
-                    header.update(f"💰 Pricing loaded: {self._cache_hits}/{self._total_prices} from cache ({cache_pct:.0f}%)")
-                    header.styles.color = "green"
+                    if self._cache_hits > 0:
+                        header.update(f"💰 Pricing loaded: {self._cache_hits}/{self._total_prices} from cache ({cache_pct:.0f}%)")
+                        header.styles.color = "green"
+                    else:
+                        header.update(f"💰 Pricing loaded: {self._total_prices} prices (0% cached)")
+                        header.styles.color = "cyan"
                 else:
-                    # Hide the header if no cache hits
                     header.update("")
         except Exception:
             pass  # Header might not exist yet
