@@ -129,17 +129,27 @@ def cmd_list(args) -> int:
 
         # Processor family filter
         if hasattr(args, 'processor_family') and args.processor_family:
+            def is_amd_instance(instance_type: str) -> bool:
+                """Check if instance type is AMD (has 'a' suffix before size)"""
+                # AMD instances have pattern like m5a.large, c5a.xlarge, r5a.2xlarge
+                # The 'a' comes right before the dot
+                parts = instance_type.split('.')
+                if len(parts) >= 1:
+                    family_part = parts[0]
+                    return family_part.endswith('a') and not family_part.endswith('ga')
+                return False
+
             if args.processor_family == "intel":
                 # Intel instances: not AMD and not Graviton
                 instances = [
                     inst for inst in instances
-                    if "amd" not in inst.instance_type.lower() and "arm64" not in inst.processor_info.supported_architectures
+                    if not is_amd_instance(inst.instance_type) and "arm64" not in inst.processor_info.supported_architectures
                 ]
             elif args.processor_family == "amd":
                 # AMD instances have 'a' in the name (e.g., m5a, c5a)
                 instances = [
                     inst for inst in instances
-                    if "a." in inst.instance_type or inst.instance_type.endswith("a")
+                    if is_amd_instance(inst.instance_type)
                 ]
             elif args.processor_family == "graviton":
                 # Graviton instances support arm64

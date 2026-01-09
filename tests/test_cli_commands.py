@@ -1252,3 +1252,836 @@ class TestCmdSpotHistory:
         result = commands.cmd_spot_history(args)
 
         assert result == 1
+
+
+class TestCLIFilters:
+    """Tests for CLI filter integration"""
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_storage_type_ebs_only_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_ebs_only, instance_with_instance_store
+    ):
+        """Test --storage-type ebs-only filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_ebs_only,
+            instance_with_instance_store
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = "ebs-only"
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 1
+        assert instances[0].instance_type == "t3.small"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_storage_type_instance_store_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_ebs_only, instance_with_instance_store
+    ):
+        """Test --storage-type instance-store filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_ebs_only,
+            instance_with_instance_store
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = "instance-store"
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 1
+        assert instances[0].instance_type == "i3.large"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_nvme_required_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_with_instance_store, instance_nvme_supported, instance_ebs_only
+    ):
+        """Test --nvme required filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_with_instance_store,  # nvme_support="required"
+            instance_nvme_supported,       # nvme_support="supported"
+            instance_ebs_only              # no instance storage
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = "required"
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 1
+        assert instances[0].instance_type == "i3.large"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_nvme_supported_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_with_instance_store, instance_nvme_supported, instance_ebs_only
+    ):
+        """Test --nvme supported filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_with_instance_store,  # nvme_support="required"
+            instance_nvme_supported,       # nvme_support="supported"
+            instance_ebs_only              # no instance storage
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = "supported"
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 1
+        assert instances[0].instance_type == "m5d.large"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_nvme_unsupported_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_with_instance_store, instance_nvme_supported, instance_ebs_only
+    ):
+        """Test --nvme unsupported filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_with_instance_store,  # nvme_support="required"
+            instance_nvme_supported,       # nvme_support="supported"
+            instance_ebs_only              # no instance storage
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = "unsupported"
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 1
+        assert instances[0].instance_type == "t3.small"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_processor_family_intel_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        sample_instance_type, instance_amd, instance_graviton
+    ):
+        """Test --processor-family intel filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            sample_instance_type,  # t3.micro - Intel (x86_64, no 'a' suffix)
+            instance_amd,          # m5a.large - AMD
+            instance_graviton      # m6g.large - Graviton (arm64)
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = "intel"
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 1
+        assert instances[0].instance_type == "t3.micro"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_processor_family_amd_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        sample_instance_type, instance_amd, instance_graviton
+    ):
+        """Test --processor-family amd filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            sample_instance_type,  # t3.micro - Intel
+            instance_amd,          # m5a.large - AMD
+            instance_graviton      # m6g.large - Graviton
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = "amd"
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 1
+        assert instances[0].instance_type == "m5a.large"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_processor_family_graviton_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        sample_instance_type, instance_amd, instance_graviton
+    ):
+        """Test --processor-family graviton filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            sample_instance_type,  # t3.micro - Intel
+            instance_amd,          # m5a.large - AMD
+            instance_graviton      # m6g.large - Graviton
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = "graviton"
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 1
+        assert instances[0].instance_type == "m6g.large"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_network_performance_low_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_low_network, sample_instance_type, instance_very_high_network
+    ):
+        """Test --network-performance low filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_low_network,       # "Low"
+            sample_instance_type,       # "Up to 5 Gigabit"
+            instance_very_high_network  # "100 Gigabit"
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = "low"
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        # "Low" matches "low" and "Up to 5 Gigabit" matches "up to 5 gigabit"
+        assert len(instances) == 2
+        instance_types = [i.instance_type for i in instances]
+        assert "t2.nano" in instance_types
+        assert "t3.micro" in instance_types
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_network_performance_high_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_low_network, instance_high_network, instance_very_high_network
+    ):
+        """Test --network-performance high filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_low_network,       # "Low"
+            instance_high_network,      # "Up to 25 Gigabit"
+            instance_very_high_network  # "100 Gigabit"
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = "high"
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        # "Up to 25 Gigabit" matches "up to 25 gigabit"
+        assert len(instances) == 1
+        assert instances[0].instance_type == "c5n.xlarge"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_network_performance_very_high_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_low_network, instance_high_network, instance_very_high_network
+    ):
+        """Test --network-performance very-high filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_low_network,       # "Low"
+            instance_high_network,      # "Up to 25 Gigabit"
+            instance_very_high_network  # "100 Gigabit"
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = "very-high"
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        # "100 Gigabit" matches "100 gigabit"
+        assert len(instances) == 1
+        assert instances[0].instance_type == "c5n.18xlarge"
+
+    @patch('src.cli.commands.Settings')
+    @patch('src.cli.commands.PricingService')
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_min_price_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        mock_pricing_class, mock_settings_class,
+        instance_cheap, sample_instance_type, instance_expensive
+    ):
+        """Test --min-price filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_cheap,        # $0.0042/hr
+            sample_instance_type,  # $0.0104/hr
+            instance_expensive     # $32.77/hr
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_settings = Mock()
+        mock_settings.cli_pricing_concurrency = 5
+        mock_settings_class.return_value = mock_settings
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = True  # Suppress pricing fetch progress messages
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = 0.01  # Filter out instances below $0.01/hr
+        args.max_price = None
+        args.include_pricing = False  # Don't fetch pricing, use fixture data
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        # instance_cheap ($0.0042) and sample_instance_type ($0.0104) are below $0.01
+        # But we also keep instances without pricing, so test checks for proper filtering
+        # Since these already have pricing attached, the filter should apply
+        assert len(instances) == 2
+        instance_types = [i.instance_type for i in instances]
+        assert "t4g.nano" not in instance_types  # $0.0042 < $0.01
+        assert "t3.micro" in instance_types       # $0.0104 > $0.01
+        assert "p4d.24xlarge" in instance_types   # $32.77 > $0.01
+
+    @patch('src.cli.commands.Settings')
+    @patch('src.cli.commands.PricingService')
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_max_price_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        mock_pricing_class, mock_settings_class,
+        instance_cheap, sample_instance_type, instance_expensive
+    ):
+        """Test --max-price filter"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_cheap,        # $0.0042/hr
+            sample_instance_type,  # $0.0104/hr
+            instance_expensive     # $32.77/hr
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_settings = Mock()
+        mock_settings.cli_pricing_concurrency = 5
+        mock_settings_class.return_value = mock_settings
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = True
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = 0.05  # Filter out instances above $0.05/hr
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        assert len(instances) == 2
+        instance_types = [i.instance_type for i in instances]
+        assert "t4g.nano" in instance_types       # $0.0042 < $0.05
+        assert "t3.micro" in instance_types       # $0.0104 < $0.05
+        assert "p4d.24xlarge" not in instance_types  # $32.77 > $0.05
+
+    @patch('src.cli.commands.Settings')
+    @patch('src.cli.commands.PricingService')
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_price_range_filter(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        mock_pricing_class, mock_settings_class,
+        instance_cheap, sample_instance_type, instance_expensive
+    ):
+        """Test --min-price and --max-price combined"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_cheap,        # $0.0042/hr
+            sample_instance_type,  # $0.0104/hr
+            instance_expensive     # $32.77/hr
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_settings = Mock()
+        mock_settings.cli_pricing_concurrency = 5
+        mock_settings_class.return_value = mock_settings
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = True
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = 0.005   # Filter out below $0.005/hr
+        args.max_price = 1.00    # Filter out above $1.00/hr
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        # Only t3.micro ($0.0104) is in range $0.005 - $1.00
+        assert len(instances) == 1
+        assert instances[0].instance_type == "t3.micro"
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_price_filter_keeps_instances_without_pricing(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        sample_instance_type, sample_instance_type_no_pricing
+    ):
+        """Test that price filter keeps instances without pricing data"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            sample_instance_type,          # Has pricing
+            sample_instance_type_no_pricing  # No pricing
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = True
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = None
+        args.nvme = None
+        args.processor_family = None
+        args.network_performance = None
+        args.min_price = 0.001
+        args.max_price = 0.02
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        # t3.micro ($0.0104) is in range, m5.large (no pricing) should be kept
+        assert len(instances) == 2
+        instance_types = [i.instance_type for i in instances]
+        assert "t3.micro" in instance_types
+        assert "m5.large" in instance_types  # Kept despite no pricing
+
+    @patch('src.cli.commands.InstanceService')
+    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.get_formatter')
+    def test_combined_filters(
+        self, mock_get_formatter, mock_get_client, mock_service_class,
+        instance_with_instance_store, instance_ebs_only, instance_graviton,
+        instance_amd, sample_instance_type
+    ):
+        """Test combining multiple filters"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_service = Mock()
+        mock_service.get_instance_types.return_value = [
+            instance_with_instance_store,  # i3.large - instance store, NVMe required, Intel
+            instance_ebs_only,             # t3.small - EBS only, Intel
+            instance_graviton,             # m6g.large - EBS only (no storage info), Graviton
+            instance_amd,                  # m5a.large - EBS only (no storage info), AMD
+            sample_instance_type           # t3.micro - EBS only, Intel
+        ]
+        mock_service_class.return_value = mock_service
+
+        mock_formatter = Mock()
+        mock_formatter.format_instance_list.return_value = "formatted output"
+        mock_get_formatter.return_value = mock_formatter
+
+        # Filter: EBS-only + Intel processor
+        args = Mock()
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.search = None
+        args.free_tier_only = False
+        args.family = None
+        args.storage_type = "ebs-only"
+        args.nvme = None
+        args.processor_family = "intel"
+        args.network_performance = None
+        args.min_price = None
+        args.max_price = None
+        args.include_pricing = False
+
+        result = commands.cmd_list(args)
+
+        assert result == 0
+        call_args = mock_formatter.format_instance_list.call_args
+        instances = call_args[0][0]
+        # Should only get EBS-only Intel instances: t3.small, t3.micro
+        instance_types = [i.instance_type for i in instances]
+        assert "t3.small" in instance_types
+        assert "t3.micro" in instance_types
+        assert "i3.large" not in instance_types   # Has instance store
+        assert "m6g.large" not in instance_types  # Graviton
+        assert "m5a.large" not in instance_types  # AMD
