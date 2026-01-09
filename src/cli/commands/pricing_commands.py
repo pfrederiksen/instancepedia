@@ -216,7 +216,19 @@ def cmd_spot_history(args) -> int:
         )
 
         if not history:
-            print_error(f"No spot price history available for {args.instance_type} in {args.region}")
+            is_metal = ".metal" in args.instance_type
+            is_mac = args.instance_type.startswith("mac")
+
+            if is_metal or is_mac:
+                print_error(f"Spot pricing not supported for {args.instance_type}")
+                status("Metal and Mac instances do not support spot pricing.", args.quiet)
+                status("Consider: Savings Plans or Reserved Instances for cost savings.", args.quiet)
+            else:
+                print_error(f"No spot price history available for {args.instance_type} in {args.region}")
+                status("Possible reasons:", args.quiet)
+                status("  - No spot capacity in this region for this instance type", args.quiet)
+                status("  - Instance type not offered as spot in this region", args.quiet)
+                status("Try: instancepedia compare-regions --include-spot to find regions with spot pricing.", args.quiet)
             return 1
 
         # Format output
