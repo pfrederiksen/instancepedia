@@ -19,8 +19,11 @@ logger = logging.getLogger("instancepedia")
 REGION_MAP = {
     'us-east-1': 'US East (N. Virginia)',
     'us-east-2': 'US East (Ohio)',
+    'us-east-3': 'US East (Columbus)',
     'us-west-1': 'US West (N. California)',
     'us-west-2': 'US West (Oregon)',
+    'us-west-3': 'US West (Phoenix)',
+    'us-west-4': 'US West (Las Vegas)',
     'af-south-1': 'Africa (Cape Town)',
     'ap-east-1': 'Asia Pacific (Hong Kong)',
     'ap-south-1': 'Asia Pacific (Mumbai)',
@@ -32,6 +35,7 @@ REGION_MAP = {
     'ap-southeast-2': 'Asia Pacific (Sydney)',
     'ap-southeast-3': 'Asia Pacific (Jakarta)',
     'ap-southeast-4': 'Asia Pacific (Melbourne)',
+    'ap-southeast-5': 'Asia Pacific (Osaka)',
     'ca-central-1': 'Canada (Central)',
     'eu-central-1': 'EU (Frankfurt)',
     'eu-central-2': 'EU (Zurich)',
@@ -39,6 +43,7 @@ REGION_MAP = {
     'eu-west-2': 'EU (London)',
     'eu-west-3': 'EU (Paris)',
     'eu-north-1': 'EU (Stockholm)',
+    'eu-north-2': 'EU (Warsaw)',
     'eu-south-1': 'EU (Milan)',
     'eu-south-2': 'EU (Spain)',
     'me-south-1': 'Middle East (Bahrain)',
@@ -64,6 +69,24 @@ class AsyncPricingService:
         self.use_cache = use_cache
         self.cache = get_pricing_cache() if use_cache else None
         self.settings = settings or Settings()
+
+    def _get_pricing_region(self, region: str) -> Optional[str]:
+        """Map AWS region code to Pricing API location name"""
+        pricing_region = REGION_MAP.get(region)
+        if not pricing_region:
+            DebugLog.log(f"Warning: Region {region} not in pricing region map")
+        return pricing_region
+
+    def _build_ec2_filters(self, instance_type: str, pricing_region: str) -> List[Dict]:
+        """Build common EC2 pricing filters for Pricing API queries"""
+        return [
+            {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
+            {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
+            {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
+            {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
+            {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
+            {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'},
+        ]
 
     async def get_on_demand_price(
         self,
@@ -94,26 +117,19 @@ class AsyncPricingService:
                     cache_hit_callback()
                 return cached_price
 
-        pricing_region = REGION_MAP.get(region)
+        pricing_region = self._get_pricing_region(region)
         if not pricing_region:
-            DebugLog.log(f"Warning: Region {region} not in pricing region map")
             # Cache the None result
             if self.cache:
                 self.cache.set(region, instance_type, 'on_demand', None)
             return None
 
         # Cache miss - fetch from AWS
+        filters = self._build_ec2_filters(instance_type, pricing_region)
+
         for attempt in range(max_retries + 1):
             try:
                 async with self.aws_client.get_pricing_client() as pricing:
-                    filters = [
-                        {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
-                        {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
-                        {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
-                        {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
-                        {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
-                    ]
-
                     response = await pricing.get_products(
                         ServiceCode='AmazonEC2',
                         Filters=filters,
@@ -286,26 +302,17 @@ class AsyncPricingService:
             logger.error(f"Invalid lease length: {lease_length}")
             return None
 
-        pricing_region = REGION_MAP.get(region)
+        pricing_region = self._get_pricing_region(region)
         if not pricing_region:
-            DebugLog.log(f"Warning: Region {region} not in pricing region map")
             if self.cache:
                 self.cache.set(region, instance_type, cache_key, None)
             return None
 
         # Cache miss - fetch from AWS
+        filters = self._build_ec2_filters(instance_type, pricing_region)
+
         for attempt in range(max_retries + 1):
             try:
-                # Query for Reserved pricing with No Upfront
-                filters = [
-                    {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
-                    {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
-                    {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
-                    {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
-                    {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
-                    {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'},
-                ]
-
                 DebugLog.log(f"Querying Pricing API for {lease_length} savings plan: {instance_type} in {pricing_region}")
                 async with self.aws_client.get_pricing_client() as pricing:
                     response = await pricing.get_products(
@@ -453,26 +460,17 @@ class AsyncPricingService:
             logger.error(f"Invalid payment option: {payment_option}")
             return None
 
-        pricing_region = REGION_MAP.get(region)
+        pricing_region = self._get_pricing_region(region)
         if not pricing_region:
-            DebugLog.log(f"Warning: Region {region} not in pricing region map")
             if self.cache:
                 self.cache.set(region, instance_type, cache_key, None)
             return None
 
         # Cache miss - fetch from AWS
+        filters = self._build_ec2_filters(instance_type, pricing_region)
+
         for attempt in range(max_retries + 1):
             try:
-                # Query for Reserved Instance pricing
-                filters = [
-                    {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
-                    {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': pricing_region},
-                    {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': instance_type},
-                    {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'},
-                    {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'},
-                    {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'},
-                ]
-
                 DebugLog.log(f"Querying Pricing API for {lease_length} RI {payment_option}: {instance_type} in {pricing_region}")
                 async with self.aws_client.get_pricing_client() as pricing:
                     response = await pricing.get_products(

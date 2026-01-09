@@ -120,6 +120,32 @@ After installation, configure AWS credentials (one of the following):
    - Set environment variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
    - Use an AWS profile: `export AWS_PROFILE=your-profile`
 
+### Shell Completions (Optional)
+
+Enable tab completion for commands, options, and arguments.
+
+**Bash:**
+```bash
+# Add to ~/.bashrc
+source /path/to/instancepedia/scripts/completions/instancepedia.bash
+
+# Or copy to system completions directory
+sudo cp scripts/completions/instancepedia.bash /etc/bash_completion.d/instancepedia
+```
+
+**Zsh:**
+```bash
+# Create completions directory and copy file
+mkdir -p ~/.zsh/completions
+cp scripts/completions/_instancepedia ~/.zsh/completions/
+
+# Add to ~/.zshrc (before compinit)
+fpath=(~/.zsh/completions $fpath)
+autoload -Uz compinit && compinit
+```
+
+After setup, restart your shell or run `source ~/.bashrc` (or `source ~/.zshrc`).
+
 ## Usage
 
 ### TUI Mode (Interactive)

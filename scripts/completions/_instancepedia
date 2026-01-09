@@ -1,0 +1,289 @@
+#compdef instancepedia
+# Zsh completion for instancepedia
+# Install: copy to a directory in your $fpath (e.g., ~/.zsh/completions/)
+#   mkdir -p ~/.zsh/completions
+#   cp _instancepedia ~/.zsh/completions/
+#   # Add to ~/.zshrc: fpath=(~/.zsh/completions $fpath)
+#   # Then run: autoload -Uz compinit && compinit
+
+_instancepedia() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
+
+    local -a commands
+    commands=(
+        'list:List instance types'
+        'show:Show instance type details'
+        'search:Search instance types'
+        'pricing:Get pricing information'
+        'regions:List available regions'
+        'compare:Compare two instance types'
+        'cost-estimate:Calculate cost estimates'
+        'compare-regions:Compare pricing across regions'
+        'compare-family:Compare all instances in a family'
+        'presets:Manage filter presets'
+        'spot-history:Show spot price history'
+        'cache:Manage pricing cache'
+    )
+
+    local -a regions
+    regions=(
+        'us-east-1:US East (N. Virginia)'
+        'us-east-2:US East (Ohio)'
+        'us-west-1:US West (N. California)'
+        'us-west-2:US West (Oregon)'
+        'eu-west-1:Europe (Ireland)'
+        'eu-west-2:Europe (London)'
+        'eu-west-3:Europe (Paris)'
+        'eu-central-1:Europe (Frankfurt)'
+        'eu-north-1:Europe (Stockholm)'
+        'ap-northeast-1:Asia Pacific (Tokyo)'
+        'ap-northeast-2:Asia Pacific (Seoul)'
+        'ap-northeast-3:Asia Pacific (Osaka)'
+        'ap-southeast-1:Asia Pacific (Singapore)'
+        'ap-southeast-2:Asia Pacific (Sydney)'
+        'ap-south-1:Asia Pacific (Mumbai)'
+        'sa-east-1:South America (Sao Paulo)'
+        'ca-central-1:Canada (Central)'
+    )
+
+    local -a instance_families
+    instance_families=(
+        't2' 't3' 't3a' 't4g'
+        'm5' 'm5a' 'm5n' 'm6i' 'm6a' 'm6g' 'm7i' 'm7a' 'm7g'
+        'c5' 'c5a' 'c5n' 'c6i' 'c6a' 'c6g' 'c7i' 'c7a' 'c7g'
+        'r5' 'r5a' 'r5n' 'r6i' 'r6a' 'r6g' 'r7i' 'r7a' 'r7g'
+        'i3' 'i3en' 'i4i' 'd2' 'd3' 'd3en' 'h1'
+        'p3' 'p4d' 'p5' 'g4dn' 'g5' 'inf1' 'inf2' 'trn1'
+    )
+
+    local -a presets
+    presets=(
+        'web-server:4+ vCPU, 8+ GB RAM, current generation'
+        'database:Memory-optimized, 8+ vCPU, 32+ GB RAM'
+        'compute-intensive:Compute-optimized, 16+ vCPU'
+        'gpu-ml:GPU instances for machine learning'
+        'arm-graviton:ARM-based Graviton instances'
+        'burstable:T-series burstable instances'
+        'free-tier:Free tier eligible instances'
+        'small-dev:Small development instances (1-2 vCPU)'
+    )
+
+    _arguments -C \
+        '--tui[Run in TUI mode]' \
+        '--debug[Enable debug output]' \
+        '--help[Show help]' \
+        '1: :->command' \
+        '*:: :->args'
+
+    case $state in
+        command)
+            _describe -t commands 'instancepedia commands' commands
+            ;;
+        args)
+            case $words[1] in
+                list)
+                    _arguments \
+                        '--region=[AWS region]:region:->regions' \
+                        '--profile=[AWS profile]:profile:->profiles' \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]' \
+                        '--search=[Search filter]:search:' \
+                        '--free-tier-only[Show only free tier eligible]' \
+                        '--family=[Filter by family]:family:->families' \
+                        '--storage-type=[Filter by storage]:type:(ebs-only instance-store)' \
+                        '--nvme=[Filter by NVMe support]:nvme:(required supported unsupported)' \
+                        '--processor-family=[Filter by processor]:processor:(intel amd graviton)' \
+                        '--network-performance=[Filter by network]:network:(low moderate high very-high)' \
+                        '--min-price=[Minimum price]:price:' \
+                        '--max-price=[Maximum price]:price:' \
+                        '--include-pricing[Include pricing information]'
+                    ;;
+                show|pricing)
+                    _arguments \
+                        '1:instance type:' \
+                        '--region=[AWS region]:region:->regions' \
+                        '--profile=[AWS profile]:profile:->profiles' \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]' \
+                        '--include-pricing[Include pricing information]'
+                    ;;
+                search)
+                    _arguments \
+                        '1:search term:' \
+                        '--region=[AWS region]:region:->regions' \
+                        '--profile=[AWS profile]:profile:->profiles' \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]' \
+                        '--free-tier-only[Show only free tier eligible]' \
+                        '--family=[Filter by family]:family:->families' \
+                        '--storage-type=[Filter by storage]:type:(ebs-only instance-store)' \
+                        '--nvme=[Filter by NVMe support]:nvme:(required supported unsupported)' \
+                        '--processor-family=[Filter by processor]:processor:(intel amd graviton)' \
+                        '--network-performance=[Filter by network]:network:(low moderate high very-high)' \
+                        '--min-price=[Minimum price]:price:' \
+                        '--max-price=[Maximum price]:price:' \
+                        '--include-pricing[Include pricing information]'
+                    ;;
+                regions)
+                    _arguments \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]'
+                    ;;
+                compare)
+                    _arguments \
+                        '1:first instance type:' \
+                        '2:second instance type:' \
+                        '--region=[AWS region]:region:->regions' \
+                        '--profile=[AWS profile]:profile:->profiles' \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]' \
+                        '--include-pricing[Include pricing information]'
+                    ;;
+                cost-estimate)
+                    _arguments \
+                        '1:instance type:' \
+                        '--region=[AWS region]:region:->regions' \
+                        '--profile=[AWS profile]:profile:->profiles' \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]' \
+                        '--hours-per-month=[Hours per month]:hours:' \
+                        '--months=[Number of months]:months:' \
+                        '--pricing-model=[Pricing model]:model:(on-demand spot savings-1yr savings-3yr)'
+                    ;;
+                compare-regions)
+                    _arguments \
+                        '1:instance type:' \
+                        '--regions=[Comma-separated regions]:regions:' \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]'
+                    ;;
+                compare-family)
+                    _arguments \
+                        '1:instance family:->families' \
+                        '--region=[AWS region]:region:->regions' \
+                        '--profile=[AWS profile]:profile:->profiles' \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]' \
+                        '--include-pricing[Include pricing information]' \
+                        '--sort-by=[Sort by]:sort:(vcpu memory price name)'
+                    ;;
+                spot-history)
+                    _arguments \
+                        '1:instance type:' \
+                        '--region=[AWS region]:region:->regions' \
+                        '--profile=[AWS profile]:profile:->profiles' \
+                        '--format=[Output format]:format:(table json csv)' \
+                        '--output=[Output file]:file:_files' \
+                        '--quiet[Suppress progress messages]' \
+                        '--debug[Enable debug output]' \
+                        '--days=[Days of history]:days:'
+                    ;;
+                presets)
+                    local -a presets_commands
+                    presets_commands=(
+                        'list:List available filter presets'
+                        'apply:Apply a filter preset'
+                    )
+                    _arguments \
+                        '1: :->presets_cmd' \
+                        '*:: :->presets_args'
+                    case $state in
+                        presets_cmd)
+                            _describe -t commands 'presets commands' presets_commands
+                            ;;
+                        presets_args)
+                            case $words[1] in
+                                list)
+                                    _arguments '--format=[Output format]:format:(table json)'
+                                    ;;
+                                apply)
+                                    _arguments \
+                                        '1:preset name:->presets' \
+                                        '--region=[AWS region]:region:->regions' \
+                                        '--profile=[AWS profile]:profile:->profiles' \
+                                        '--format=[Output format]:format:(table json csv)' \
+                                        '--output=[Output file]:file:_files' \
+                                        '--quiet[Suppress progress messages]' \
+                                        '--debug[Enable debug output]' \
+                                        '--include-pricing[Include pricing information]'
+                                    ;;
+                            esac
+                            ;;
+                    esac
+                    ;;
+                cache)
+                    local -a cache_commands
+                    cache_commands=(
+                        'stats:Show cache statistics'
+                        'clear:Clear cache entries'
+                    )
+                    _arguments \
+                        '1: :->cache_cmd' \
+                        '*:: :->cache_args'
+                    case $state in
+                        cache_cmd)
+                            _describe -t commands 'cache commands' cache_commands
+                            ;;
+                        cache_args)
+                            case $words[1] in
+                                stats)
+                                    _arguments \
+                                        '--format=[Output format]:format:(table json)' \
+                                        '--debug[Enable debug output]'
+                                    ;;
+                                clear)
+                                    _arguments \
+                                        '--region=[Clear for region]:region:->regions' \
+                                        '--instance-type=[Clear for instance type]:type:' \
+                                        '--force[Skip confirmation]' \
+                                        '--quiet[Suppress output]' \
+                                        '--debug[Enable debug output]'
+                                    ;;
+                            esac
+                            ;;
+                    esac
+                    ;;
+            esac
+
+            # Handle state completions
+            case $state in
+                regions)
+                    _describe -t regions 'AWS regions' regions
+                    ;;
+                families)
+                    _describe -t families 'instance families' instance_families
+                    ;;
+                presets)
+                    _describe -t presets 'filter presets' presets
+                    ;;
+                profiles)
+                    # Get AWS profiles from credentials file
+                    if [[ -f ~/.aws/credentials ]]; then
+                        local -a profiles
+                        profiles=(${(f)"$(grep '^\[' ~/.aws/credentials | tr -d '[]')"})
+                        _describe -t profiles 'AWS profiles' profiles
+                    fi
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_instancepedia "$@"
