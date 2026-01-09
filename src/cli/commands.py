@@ -1,8 +1,26 @@
 """CLI command handlers"""
 
+import logging
 import sys
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+logger = logging.getLogger("instancepedia")
+
+
+def print_error(message: str, debug: bool = False, exception: Exception = None) -> None:
+    """Print error message to stderr with consistent formatting.
+
+    Args:
+        message: Error message to display
+        debug: Whether to print full traceback
+        exception: Optional exception for traceback
+    """
+    print(f"Error: {message}", file=sys.stderr)
+    if debug and exception:
+        import traceback
+        traceback.print_exc()
+
 
 from src.services.aws_client import AWSClient
 from src.services.instance_service import InstanceService
@@ -22,6 +40,47 @@ def get_aws_client(region: str, profile: Optional[str] = None) -> AWSClient:
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def fetch_instance_pricing(
+    pricing_service: PricingService,
+    instance_type: str,
+    region: str,
+    include_ri: bool = False
+) -> PricingInfo:
+    """
+    Fetch pricing information for an instance type.
+
+    Args:
+        pricing_service: The pricing service to use
+        instance_type: Instance type name (e.g., 't3.micro')
+        region: AWS region code
+        include_ri: Whether to include Reserved Instance pricing (slower)
+
+    Returns:
+        PricingInfo with all available pricing data
+    """
+    on_demand = pricing_service.get_on_demand_price(instance_type, region, max_retries=3)
+    spot = pricing_service.get_spot_price(instance_type, region)
+    savings_1yr = pricing_service.get_savings_plan_price(instance_type, region, "1yr")
+    savings_3yr = pricing_service.get_savings_plan_price(instance_type, region, "3yr")
+
+    pricing = PricingInfo(
+        on_demand_price=on_demand,
+        spot_price=spot,
+        savings_plan_1yr_no_upfront=savings_1yr,
+        savings_plan_3yr_no_upfront=savings_3yr
+    )
+
+    if include_ri:
+        pricing.ri_1yr_no_upfront = pricing_service.get_reserved_instance_price(instance_type, region, "1yr", "no_upfront")
+        pricing.ri_1yr_partial_upfront = pricing_service.get_reserved_instance_price(instance_type, region, "1yr", "partial_upfront")
+        pricing.ri_1yr_all_upfront = pricing_service.get_reserved_instance_price(instance_type, region, "1yr", "all_upfront")
+        pricing.ri_3yr_no_upfront = pricing_service.get_reserved_instance_price(instance_type, region, "3yr", "no_upfront")
+        pricing.ri_3yr_partial_upfront = pricing_service.get_reserved_instance_price(instance_type, region, "3yr", "partial_upfront")
+        pricing.ri_3yr_all_upfront = pricing_service.get_reserved_instance_price(instance_type, region, "3yr", "all_upfront")
+
+    return pricing
 
 
 def cmd_list(args) -> int:
@@ -173,10 +232,7 @@ def cmd_list(args) -> int:
         return 0
         
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -200,34 +256,8 @@ def cmd_show(args) -> int:
         if args.include_pricing:
             print("Fetching pricing information...", file=sys.stderr)
             pricing_service = PricingService(aws_client)
-            on_demand = pricing_service.get_on_demand_price(
-                instance.instance_type,
-                args.region,
-                max_retries=3
-            )
-            spot = pricing_service.get_spot_price(instance.instance_type, args.region)
-            savings_1yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "1yr")
-            savings_3yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "3yr")
-
-            # Fetch RI pricing
-            ri_1yr_no = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "1yr", "no_upfront")
-            ri_1yr_partial = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "1yr", "partial_upfront")
-            ri_1yr_all = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "1yr", "all_upfront")
-            ri_3yr_no = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "3yr", "no_upfront")
-            ri_3yr_partial = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "3yr", "partial_upfront")
-            ri_3yr_all = pricing_service.get_reserved_instance_price(instance.instance_type, args.region, "3yr", "all_upfront")
-
-            instance.pricing = PricingInfo(
-                on_demand_price=on_demand,
-                spot_price=spot,
-                savings_plan_1yr_no_upfront=savings_1yr,
-                savings_plan_3yr_no_upfront=savings_3yr,
-                ri_1yr_no_upfront=ri_1yr_no,
-                ri_1yr_partial_upfront=ri_1yr_partial,
-                ri_1yr_all_upfront=ri_1yr_all,
-                ri_3yr_no_upfront=ri_3yr_no,
-                ri_3yr_partial_upfront=ri_3yr_partial,
-                ri_3yr_all_upfront=ri_3yr_all
+            instance.pricing = fetch_instance_pricing(
+                pricing_service, instance.instance_type, args.region, include_ri=True
             )
         
         # Output
@@ -243,10 +273,7 @@ def cmd_show(args) -> int:
         return 0
         
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -275,19 +302,8 @@ def cmd_pricing(args) -> int:
         # Fetch pricing
         print("Fetching pricing information...", file=sys.stderr)
         pricing_service = PricingService(aws_client)
-        on_demand = pricing_service.get_on_demand_price(
-            instance.instance_type,
-            args.region,
-            max_retries=5
-        )
-        spot = pricing_service.get_spot_price(instance.instance_type, args.region)
-        savings_1yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "1yr")
-        savings_3yr = pricing_service.get_savings_plan_price(instance.instance_type, args.region, "3yr")
-        instance.pricing = PricingInfo(
-            on_demand_price=on_demand,
-            spot_price=spot,
-            savings_plan_1yr_no_upfront=savings_1yr,
-            savings_plan_3yr_no_upfront=savings_3yr
+        instance.pricing = fetch_instance_pricing(
+            pricing_service, instance.instance_type, args.region
         )
         
         # Output
@@ -303,10 +319,7 @@ def cmd_pricing(args) -> int:
         return 0
         
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -351,10 +364,7 @@ def cmd_regions(args) -> int:
         return 0
         
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -409,10 +419,7 @@ def cmd_compare(args) -> int:
         return 0
         
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -444,10 +451,7 @@ def cmd_cache_stats(args) -> int:
 
         return 0
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -479,6 +483,16 @@ def cmd_cache_clear(args) -> int:
         # Clear cache
         count = cache.clear(region=region, instance_type=instance_type)
 
+        # Log the cache clear action for audit trail
+        if region and instance_type:
+            logger.info(f"Cache cleared: {count} entries for {instance_type} in {region}")
+        elif region:
+            logger.info(f"Cache cleared: {count} entries for region {region}")
+        elif instance_type:
+            logger.info(f"Cache cleared: {count} entries for {instance_type}")
+        else:
+            logger.info(f"Cache cleared: {count} entries (all)")
+
         if not args.quiet:
             if region and instance_type:
                 print(f"Cleared {count} cache entries for {instance_type} in {region}")
@@ -491,10 +505,7 @@ def cmd_cache_clear(args) -> int:
 
         return 0
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -520,13 +531,8 @@ def cmd_cost_estimate(args) -> int:
             print("Fetching pricing information...", file=sys.stderr)
 
         pricing_service = PricingService(aws_client)
-        on_demand = pricing_service.get_on_demand_price(args.instance_type, args.region)
-        spot = pricing_service.get_spot_price(args.instance_type, args.region)
-
-        instance.pricing = PricingInfo(
-            on_demand_price=on_demand,
-            spot_price=spot,
-            # Savings plans would go here when implemented
+        instance.pricing = fetch_instance_pricing(
+            pricing_service, args.instance_type, args.region
         )
 
         # Calculate costs based on pricing model
@@ -596,10 +602,7 @@ def cmd_cost_estimate(args) -> int:
         return 0
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -686,10 +689,7 @@ def cmd_compare_regions(args) -> int:
         return 0
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -799,10 +799,7 @@ def cmd_compare_family(args) -> int:
         return 0
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -948,10 +945,7 @@ def cmd_presets_apply(args) -> int:
         return 0
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 
@@ -1072,10 +1066,7 @@ def cmd_spot_history(args) -> int:
         return 0
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if args.debug:
-            import traceback
-            traceback.print_exc()
+        print_error(str(e), debug=args.debug, exception=e)
         return 1
 
 

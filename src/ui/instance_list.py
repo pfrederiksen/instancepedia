@@ -1,5 +1,6 @@
 """Instance type list screen"""
 
+import asyncio
 import re
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal
@@ -676,7 +677,6 @@ class InstanceList(Screen):
                     DebugLog.log(f"Error in dismiss_after_detail_mounts: {e}")
             
             # Schedule the async task using the app's event loop
-            import asyncio
             loop = asyncio.get_event_loop()
             loop.create_task(dismiss_after_detail_mounts())
         except Exception as e:
@@ -785,7 +785,6 @@ class InstanceList(Screen):
                 DebugLog.log(f"Error in dismiss_after_region_mounts: {e}")
         
         # Schedule the async task using the app's event loop
-        import asyncio
         loop = asyncio.get_event_loop()
         loop.create_task(dismiss_after_region_mounts())
 
