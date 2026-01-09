@@ -1,60 +1,78 @@
 """CLI command handlers
 
-This module re-exports all commands from the commands package for backwards compatibility.
-The actual implementations are in:
-- src/cli/commands/instance_commands.py
-- src/cli/commands/pricing_commands.py
-- src/cli/commands/cache_commands.py
-- src/cli/commands/preset_commands.py
+This package organizes CLI commands into logical modules:
+- instance_commands: Instance browsing, listing, comparison
+- pricing_commands: Pricing operations, cost estimation, spot history
+- cache_commands: Cache management
+- preset_commands: Filter preset management
 """
 
-# Re-export everything from the commands package
-from src.cli.commands import (
-    # Instance commands
+import sys
+
+# Import all commands for easy access
+from .instance_commands import (
     cmd_list,
     cmd_show,
     cmd_search,
     cmd_compare,
     cmd_compare_family,
     cmd_regions,
-    # Pricing commands
+)
+from .pricing_commands import (
     cmd_pricing,
     cmd_cost_estimate,
     cmd_compare_regions,
     cmd_spot_history,
-    # Cache commands
+)
+from .cache_commands import (
     cmd_cache_stats,
     cmd_cache_clear,
-    # Preset commands
+)
+from .preset_commands import (
     cmd_presets_list,
     cmd_presets_apply,
-    # Base utilities
+)
+from .base import (
     print_error,
     get_aws_client,
     fetch_instance_pricing,
     write_output,
-    # Runner
-    run_cli,
 )
 
+
+def run_cli(args) -> int:
+    """Run CLI command based on args"""
+    if hasattr(args, 'func'):
+        return args.func(args)
+    else:
+        print("Error: No command specified", file=sys.stderr)
+        return 1
+
+
 __all__ = [
+    # Instance commands
     'cmd_list',
     'cmd_show',
     'cmd_search',
     'cmd_compare',
     'cmd_compare_family',
     'cmd_regions',
+    # Pricing commands
     'cmd_pricing',
     'cmd_cost_estimate',
     'cmd_compare_regions',
     'cmd_spot_history',
+    # Cache commands
     'cmd_cache_stats',
     'cmd_cache_clear',
+    # Preset commands
     'cmd_presets_list',
     'cmd_presets_apply',
+    # Base utilities
     'print_error',
     'get_aws_client',
     'fetch_instance_pricing',
     'write_output',
+    # Runner
     'run_cli',
 ]
