@@ -30,6 +30,8 @@ class InstanceDetail(Screen):
         self.instance_type = instance_type
         self.free_tier_service = FreeTierService()
         self.ebs_recommendation_service = EbsRecommendationService()
+        self._pricing_worker = None
+        self._async_client = None
 
     def compose(self) -> ComposeResult:
         DebugLog.log("InstanceDetail.compose() called")
@@ -261,6 +263,58 @@ class InstanceDetail(Screen):
                         lines.append(f"  • 3-Year Savings:         {savings_3yr:.1f}% off on-demand")
                 else:
                     lines.append("  • 3-Year Savings Plan:    Not available")
+
+                # Reserved Instances (Standard, 1-Year)
+                lines.append("")
+                lines.append("  Reserved Instances (Standard, 1-Year):")
+                if inst.pricing.ri_1yr_no_upfront:
+                    savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_no_upfront")
+                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                    lines.append(f"  • No Upfront:             ${inst.pricing.ri_1yr_no_upfront:.4f} per hour{savings_str}")
+                else:
+                    lines.append("  • No Upfront:             Not available")
+
+                if inst.pricing.ri_1yr_partial_upfront:
+                    savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_partial_upfront")
+                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                    lines.append(f"  • Partial Upfront:        ${inst.pricing.ri_1yr_partial_upfront:.4f} per hour{savings_str} *")
+                else:
+                    lines.append("  • Partial Upfront:        Not available")
+
+                if inst.pricing.ri_1yr_all_upfront:
+                    savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_all_upfront")
+                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                    lines.append(f"  • All Upfront:            ${inst.pricing.ri_1yr_all_upfront:.4f} per hour{savings_str} *")
+                else:
+                    lines.append("  • All Upfront:            Not available")
+
+                # Reserved Instances (Standard, 3-Year)
+                lines.append("")
+                lines.append("  Reserved Instances (Standard, 3-Year):")
+                if inst.pricing.ri_3yr_no_upfront:
+                    savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_no_upfront")
+                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                    lines.append(f"  • No Upfront:             ${inst.pricing.ri_3yr_no_upfront:.4f} per hour{savings_str}")
+                else:
+                    lines.append("  • No Upfront:             Not available")
+
+                if inst.pricing.ri_3yr_partial_upfront:
+                    savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_partial_upfront")
+                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                    lines.append(f"  • Partial Upfront:        ${inst.pricing.ri_3yr_partial_upfront:.4f} per hour{savings_str} *")
+                else:
+                    lines.append("  • Partial Upfront:        Not available")
+
+                if inst.pricing.ri_3yr_all_upfront:
+                    savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_all_upfront")
+                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                    lines.append(f"  • All Upfront:            ${inst.pricing.ri_3yr_all_upfront:.4f} per hour{savings_str} *")
+                else:
+                    lines.append("  • All Upfront:            Not available")
+
+                # Add note about effective hourly rates
+                lines.append("")
+                lines.append("  * Effective hourly rate (includes prorated upfront payment)")
             else:
                 lines.append("  • Pricing information:     Not loaded")
                 lines.append("  • (Pricing is fetched in the background)")
@@ -286,7 +340,7 @@ class InstanceDetail(Screen):
                 logger.debug(f"Failed to update error message in detail text widget: {inner_e}")
 
     def _fetch_pricing_if_needed(self) -> None:
-        """Fetch spot price and savings plans for this instance if not already loaded"""
+        """Fetch spot price, savings plans, and reserved instances for this instance if not already loaded"""
         inst = self.instance_type
 
         # Check what pricing data we need to fetch
@@ -294,7 +348,17 @@ class InstanceDetail(Screen):
         needs_savings_1yr = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.savings_plan_1yr_no_upfront is None
         needs_savings_3yr = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.savings_plan_3yr_no_upfront is None
 
-        if needs_spot or needs_savings_1yr or needs_savings_3yr:
+        # Check for RI pricing
+        needs_ri_1yr_no = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.ri_1yr_no_upfront is None
+        needs_ri_1yr_partial = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.ri_1yr_partial_upfront is None
+        needs_ri_1yr_all = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.ri_1yr_all_upfront is None
+        needs_ri_3yr_no = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.ri_3yr_no_upfront is None
+        needs_ri_3yr_partial = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.ri_3yr_partial_upfront is None
+        needs_ri_3yr_all = inst.pricing and inst.pricing.on_demand_price is not None and inst.pricing.ri_3yr_all_upfront is None
+
+        if (needs_spot or needs_savings_1yr or needs_savings_3yr or
+            needs_ri_1yr_no or needs_ri_1yr_partial or needs_ri_1yr_all or
+            needs_ri_3yr_no or needs_ri_3yr_partial or needs_ri_3yr_all):
 
             async def fetch_pricing():
                 """Async worker to fetch spot price and savings plans"""
@@ -306,15 +370,18 @@ class InstanceDetail(Screen):
 
                         DebugLog.log(f"Fetching additional pricing for {inst.instance_type} in {region}")
 
-                        # Use async context manager for proper resource management
-                        async with AsyncAWSClient(
+                        # Create and store async client reference
+                        self._async_client = AsyncAWSClient(
                             region,
                             settings.aws_profile if settings else None,
                             connect_timeout=settings.aws_connect_timeout if settings else 10,
                             read_timeout=settings.aws_read_timeout if settings else 60,
                             pricing_timeout=settings.pricing_read_timeout if settings else 90,
                             max_pool_connections=settings.max_pool_connections if settings else 50
-                        ) as async_client:
+                        )
+
+                        # Use async context manager for proper resource management
+                        async with self._async_client as async_client:
                             pricing_service = AsyncPricingService(async_client, settings=settings)
 
                             # Fetch spot price if needed
@@ -338,6 +405,43 @@ class InstanceDetail(Screen):
                                     inst.pricing.savings_plan_3yr_no_upfront = savings_3yr
                                 DebugLog.log(f"3-year savings plan for {inst.instance_type}: {savings_3yr}")
 
+                            # Fetch RI pricing if needed
+                            if needs_ri_1yr_no:
+                                ri_price = await pricing_service.get_reserved_instance_price(inst.instance_type, region, "1yr", "no_upfront")
+                                if inst.pricing:
+                                    inst.pricing.ri_1yr_no_upfront = ri_price
+                                DebugLog.log(f"1-year RI (no upfront) for {inst.instance_type}: {ri_price}")
+
+                            if needs_ri_1yr_partial:
+                                ri_price = await pricing_service.get_reserved_instance_price(inst.instance_type, region, "1yr", "partial_upfront")
+                                if inst.pricing:
+                                    inst.pricing.ri_1yr_partial_upfront = ri_price
+                                DebugLog.log(f"1-year RI (partial upfront) for {inst.instance_type}: {ri_price}")
+
+                            if needs_ri_1yr_all:
+                                ri_price = await pricing_service.get_reserved_instance_price(inst.instance_type, region, "1yr", "all_upfront")
+                                if inst.pricing:
+                                    inst.pricing.ri_1yr_all_upfront = ri_price
+                                DebugLog.log(f"1-year RI (all upfront) for {inst.instance_type}: {ri_price}")
+
+                            if needs_ri_3yr_no:
+                                ri_price = await pricing_service.get_reserved_instance_price(inst.instance_type, region, "3yr", "no_upfront")
+                                if inst.pricing:
+                                    inst.pricing.ri_3yr_no_upfront = ri_price
+                                DebugLog.log(f"3-year RI (no upfront) for {inst.instance_type}: {ri_price}")
+
+                            if needs_ri_3yr_partial:
+                                ri_price = await pricing_service.get_reserved_instance_price(inst.instance_type, region, "3yr", "partial_upfront")
+                                if inst.pricing:
+                                    inst.pricing.ri_3yr_partial_upfront = ri_price
+                                DebugLog.log(f"3-year RI (partial upfront) for {inst.instance_type}: {ri_price}")
+
+                            if needs_ri_3yr_all:
+                                ri_price = await pricing_service.get_reserved_instance_price(inst.instance_type, region, "3yr", "all_upfront")
+                                if inst.pricing:
+                                    inst.pricing.ri_3yr_all_upfront = ri_price
+                                DebugLog.log(f"3-year RI (all upfront) for {inst.instance_type}: {ri_price}")
+
                             # Update the UI (we're already on the main thread in async context)
                             try:
                                 self._render_details()
@@ -349,8 +453,28 @@ class InstanceDetail(Screen):
                 except Exception as e:
                     DebugLog.log(f"Error fetching pricing for {inst.instance_type}: {e}")
 
-            # Run async fetch as a worker
-            self.app.run_worker(fetch_pricing, exit_on_error=False)
+            # Run async fetch as a worker and store reference
+            self._pricing_worker = self.app.run_worker(fetch_pricing, exit_on_error=False)
+
+    def on_unmount(self) -> None:
+        """Cleanup when screen is unmounted"""
+        # Cancel pricing worker if still running
+        if self._pricing_worker is not None and not self._pricing_worker.is_finished:
+            try:
+                self._pricing_worker.cancel()
+                DebugLog.log("Cancelled pricing worker on screen unmount")
+            except Exception as e:
+                DebugLog.log(f"Error cancelling pricing worker: {e}")
+
+        # Close async client if it exists
+        if self._async_client is not None:
+            try:
+                import asyncio
+                # Schedule cleanup
+                asyncio.create_task(self._async_client.close())
+                DebugLog.log("Scheduled async client cleanup on screen unmount")
+            except Exception as e:
+                DebugLog.log(f"Error scheduling async client cleanup: {e}")
 
     def action_back(self) -> None:
         """Go back to instance list"""

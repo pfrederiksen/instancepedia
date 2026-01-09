@@ -218,6 +218,44 @@ class TableFormatter(OutputFormatter):
                     lines.append(f"  3-Year Savings: {savings_3yr:.1f}%")
             else:
                 lines.append("  3-Year Savings Plan: N/A")
+
+            # Reserved Instances (Standard, 1-Year)
+            lines.append("")
+            lines.append("Reserved Instances (Standard, 1-Year):")
+            ri_data = [
+                ("No Upfront", instance.pricing.ri_1yr_no_upfront, "ri_1yr_no_upfront"),
+                ("Partial Upfront", instance.pricing.ri_1yr_partial_upfront, "ri_1yr_partial_upfront"),
+                ("All Upfront", instance.pricing.ri_1yr_all_upfront, "ri_1yr_all_upfront"),
+            ]
+            for label, price, price_type in ri_data:
+                if price is not None:
+                    savings = instance.pricing.calculate_savings_percentage(price_type)
+                    savings_str = f" ({savings:.1f}% savings)" if savings else ""
+                    asterisk = " *" if "upfront" in label.lower() and label != "No Upfront" else ""
+                    lines.append(f"  {label}: ${price:.4f}/hr{savings_str}{asterisk}")
+                else:
+                    lines.append(f"  {label}: N/A")
+
+            # Reserved Instances (Standard, 3-Year)
+            lines.append("")
+            lines.append("Reserved Instances (Standard, 3-Year):")
+            ri_data_3yr = [
+                ("No Upfront", instance.pricing.ri_3yr_no_upfront, "ri_3yr_no_upfront"),
+                ("Partial Upfront", instance.pricing.ri_3yr_partial_upfront, "ri_3yr_partial_upfront"),
+                ("All Upfront", instance.pricing.ri_3yr_all_upfront, "ri_3yr_all_upfront"),
+            ]
+            for label, price, price_type in ri_data_3yr:
+                if price is not None:
+                    savings = instance.pricing.calculate_savings_percentage(price_type)
+                    savings_str = f" ({savings:.1f}% savings)" if savings else ""
+                    asterisk = " *" if "upfront" in label.lower() and label != "No Upfront" else ""
+                    lines.append(f"  {label}: ${price:.4f}/hr{savings_str}{asterisk}")
+                else:
+                    lines.append(f"  {label}: N/A")
+
+            # Add note about effective hourly rates
+            lines.append("")
+            lines.append("* Effective hourly rate (includes prorated upfront payment)")
         else:
             lines.append("Pricing: Not available")
         
@@ -420,6 +458,22 @@ class JSONFormatter(OutputFormatter):
             pricing = {
                 "on_demand_price_per_hour": instance.pricing.on_demand_price,
                 "spot_price_per_hour": instance.pricing.spot_price,
+                "savings_plans": {
+                    "1yr_no_upfront": instance.pricing.savings_plan_1yr_no_upfront,
+                    "3yr_no_upfront": instance.pricing.savings_plan_3yr_no_upfront,
+                },
+                "reserved_instances": {
+                    "1yr": {
+                        "no_upfront": instance.pricing.ri_1yr_no_upfront,
+                        "partial_upfront": instance.pricing.ri_1yr_partial_upfront,
+                        "all_upfront": instance.pricing.ri_1yr_all_upfront,
+                    },
+                    "3yr": {
+                        "no_upfront": instance.pricing.ri_3yr_no_upfront,
+                        "partial_upfront": instance.pricing.ri_3yr_partial_upfront,
+                        "all_upfront": instance.pricing.ri_3yr_all_upfront,
+                    },
+                },
             }
             if instance.pricing.on_demand_price:
                 pricing["monthly_cost"] = instance.pricing.calculate_monthly_cost()

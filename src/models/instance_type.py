@@ -142,6 +142,14 @@ class PricingInfo:
     savings_plan_1yr_no_upfront: Optional[float] = None  # 1-year savings plan, no upfront
     savings_plan_3yr_no_upfront: Optional[float] = None  # 3-year savings plan, no upfront
 
+    # Reserved Instance pricing (Standard, effective hourly rates)
+    ri_1yr_no_upfront: Optional[float] = None  # 1-year RI, no upfront
+    ri_1yr_partial_upfront: Optional[float] = None  # 1-year RI, partial upfront
+    ri_1yr_all_upfront: Optional[float] = None  # 1-year RI, all upfront
+    ri_3yr_no_upfront: Optional[float] = None  # 3-year RI, no upfront
+    ri_3yr_partial_upfront: Optional[float] = None  # 3-year RI, partial upfront
+    ri_3yr_all_upfront: Optional[float] = None  # 3-year RI, all upfront
+
     def format_on_demand(self) -> str:
         """Format on-demand price for display"""
         if self.on_demand_price is None:
@@ -166,11 +174,49 @@ class PricingInfo:
             return "N/A"
         return f"${self.savings_plan_3yr_no_upfront:.4f}/hr"
 
+    def format_ri_1yr_no_upfront(self) -> str:
+        """Format 1-year RI (no upfront) price for display"""
+        if self.ri_1yr_no_upfront is None:
+            return "N/A"
+        return f"${self.ri_1yr_no_upfront:.4f}/hr"
+
+    def format_ri_1yr_partial_upfront(self) -> str:
+        """Format 1-year RI (partial upfront) price for display"""
+        if self.ri_1yr_partial_upfront is None:
+            return "N/A"
+        return f"${self.ri_1yr_partial_upfront:.4f}/hr"
+
+    def format_ri_1yr_all_upfront(self) -> str:
+        """Format 1-year RI (all upfront) price for display"""
+        if self.ri_1yr_all_upfront is None:
+            return "N/A"
+        return f"${self.ri_1yr_all_upfront:.4f}/hr"
+
+    def format_ri_3yr_no_upfront(self) -> str:
+        """Format 3-year RI (no upfront) price for display"""
+        if self.ri_3yr_no_upfront is None:
+            return "N/A"
+        return f"${self.ri_3yr_no_upfront:.4f}/hr"
+
+    def format_ri_3yr_partial_upfront(self) -> str:
+        """Format 3-year RI (partial upfront) price for display"""
+        if self.ri_3yr_partial_upfront is None:
+            return "N/A"
+        return f"${self.ri_3yr_partial_upfront:.4f}/hr"
+
+    def format_ri_3yr_all_upfront(self) -> str:
+        """Format 3-year RI (all upfront) price for display"""
+        if self.ri_3yr_all_upfront is None:
+            return "N/A"
+        return f"${self.ri_3yr_all_upfront:.4f}/hr"
+
     def calculate_savings_percentage(self, price_type: str = "1yr") -> Optional[float]:
         """Calculate savings percentage compared to on-demand
 
         Args:
-            price_type: Either "1yr", "3yr", or "spot"
+            price_type: One of: "1yr", "3yr", "spot", "ri_1yr_no_upfront", "ri_1yr_partial_upfront",
+                        "ri_1yr_all_upfront", "ri_3yr_no_upfront", "ri_3yr_partial_upfront",
+                        "ri_3yr_all_upfront"
 
         Returns:
             Savings percentage (0-100) or None if prices not available
@@ -178,14 +224,22 @@ class PricingInfo:
         if self.on_demand_price is None:
             return None
 
-        if price_type == "1yr" and self.savings_plan_1yr_no_upfront:
-            savings = (self.on_demand_price - self.savings_plan_1yr_no_upfront) / self.on_demand_price * 100
-            return max(0, savings)
-        elif price_type == "3yr" and self.savings_plan_3yr_no_upfront:
-            savings = (self.on_demand_price - self.savings_plan_3yr_no_upfront) / self.on_demand_price * 100
-            return max(0, savings)
-        elif price_type == "spot" and self.spot_price:
-            savings = (self.on_demand_price - self.spot_price) / self.on_demand_price * 100
+        # Map price_type to the actual price field
+        price_map = {
+            "1yr": self.savings_plan_1yr_no_upfront,
+            "3yr": self.savings_plan_3yr_no_upfront,
+            "spot": self.spot_price,
+            "ri_1yr_no_upfront": self.ri_1yr_no_upfront,
+            "ri_1yr_partial_upfront": self.ri_1yr_partial_upfront,
+            "ri_1yr_all_upfront": self.ri_1yr_all_upfront,
+            "ri_3yr_no_upfront": self.ri_3yr_no_upfront,
+            "ri_3yr_partial_upfront": self.ri_3yr_partial_upfront,
+            "ri_3yr_all_upfront": self.ri_3yr_all_upfront,
+        }
+
+        price = price_map.get(price_type)
+        if price is not None:
+            savings = (self.on_demand_price - price) / self.on_demand_price * 100
             return max(0, savings)
 
         return None
