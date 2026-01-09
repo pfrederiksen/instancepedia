@@ -693,27 +693,50 @@ Models use Pydantic v2 for validation and serialization.
 
 ### Configuration
 
-**`src/config/settings.py`**: Uses `pydantic-settings` for environment-based config:
+**`src/config/settings.py`**: Uses `pydantic-settings` with custom TOML config source.
+
+**Settings Precedence** (highest to lowest):
+1. Init settings (passed to constructor)
+2. Environment variables (`INSTANCEPEDIA_*`)
+3. TOML config file (`~/.instancepedia/config.toml`)
+4. Default values
+
+**Config File Support:**
+- Location: `~/.instancepedia/config.toml`
+- Uses `tomllib` (Python 3.11+) or `tomli` (Python 3.9-3.10)
+- Silent error handling for config file issues
+- `TomlConfigSettingsSource` custom pydantic settings source
+- `create_default_config()` generates example config content
 
 **AWS Configuration:**
-- `INSTANCEPEDIA_AWS_REGION` - Default region
-- `INSTANCEPEDIA_AWS_PROFILE` - AWS profile
+- `aws_region` / `INSTANCEPEDIA_AWS_REGION` - Default region
+- `aws_profile` / `INSTANCEPEDIA_AWS_PROFILE` - AWS profile
 
 **Timeout Configuration:**
-- `INSTANCEPEDIA_AWS_CONNECT_TIMEOUT` - Connection timeout (default: 10s)
-- `INSTANCEPEDIA_AWS_READ_TIMEOUT` - Read timeout for AWS APIs (default: 60s)
-- `INSTANCEPEDIA_PRICING_READ_TIMEOUT` - Read timeout for Pricing API (default: 90s)
+- `aws_connect_timeout` / `INSTANCEPEDIA_AWS_CONNECT_TIMEOUT` - Connection timeout (default: 10s)
+- `aws_read_timeout` / `INSTANCEPEDIA_AWS_READ_TIMEOUT` - Read timeout for AWS APIs (default: 60s)
+- `pricing_read_timeout` / `INSTANCEPEDIA_PRICING_READ_TIMEOUT` - Read timeout for Pricing API (default: 90s)
 
 **Performance Configuration:**
-- `INSTANCEPEDIA_PRICING_CONCURRENCY` - Max concurrent pricing requests in TUI mode (default: 10)
-- `INSTANCEPEDIA_PRICING_RETRY_CONCURRENCY` - Max concurrent requests for retries (default: 3)
-- `INSTANCEPEDIA_CLI_PRICING_CONCURRENCY` - Max concurrent pricing requests in CLI mode (default: 5)
-- `INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS` - Delay between requests in milliseconds (default: 50)
-- `INSTANCEPEDIA_SPOT_BATCH_SIZE` - Instance types per spot price API call (default: 50)
-- `INSTANCEPEDIA_UI_UPDATE_THROTTLE` - Update TUI every N pricing updates (default: 10)
-- `INSTANCEPEDIA_MAX_POOL_CONNECTIONS` - Max connections in HTTP connection pool (default: 50)
+- `pricing_concurrency` / `INSTANCEPEDIA_PRICING_CONCURRENCY` - Max concurrent pricing requests in TUI mode (default: 10)
+- `pricing_retry_concurrency` / `INSTANCEPEDIA_PRICING_RETRY_CONCURRENCY` - Max concurrent requests for retries (default: 3)
+- `cli_pricing_concurrency` / `INSTANCEPEDIA_CLI_PRICING_CONCURRENCY` - Max concurrent pricing requests in CLI mode (default: 5)
+- `pricing_request_delay_ms` / `INSTANCEPEDIA_PRICING_REQUEST_DELAY_MS` - Delay between requests in milliseconds (default: 50)
+- `spot_batch_size` / `INSTANCEPEDIA_SPOT_BATCH_SIZE` - Instance types per spot price API call (default: 50)
+- `ui_update_throttle` / `INSTANCEPEDIA_UI_UPDATE_THROTTLE` - Update TUI every N pricing updates (default: 10)
+- `max_pool_connections` / `INSTANCEPEDIA_MAX_POOL_CONNECTIONS` - Max connections in HTTP connection pool (default: 50)
 
-All settings are configurable via environment variables with the `INSTANCEPEDIA_` prefix.
+**TUI Configuration:**
+- `vim_keys` / `INSTANCEPEDIA_VIM_KEYS` - Enable vim-style navigation hjkl (default: false)
+
+**Vim-Style Navigation** (`src/ui/instance_list.py`):
+When `vim_keys = true` in config (or `INSTANCEPEDIA_VIM_KEYS=true`), enables:
+- `j` - Move cursor down (same as ↓)
+- `k` - Move cursor up (same as ↑)
+- `h` - Collapse node or go to parent
+- `l` - Expand node or enter detail view (same as Enter on leaf)
+
+Implementation in `on_key()` method checks `self._settings.vim_keys` before processing hjkl keys.
 
 ## Key Implementation Details
 

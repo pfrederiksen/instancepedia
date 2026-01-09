@@ -68,6 +68,7 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - Cost analysis with monthly/annual estimates and savings percentages
 - 🆓 **Free Tier Indicators**: Clearly marked free tier eligible instances
 - ⚡ **Fast Navigation**: Smooth screen transitions with loading indicators
+- ⌨️ **Vim-Style Navigation**: Optional hjkl keybindings for power users (enable with `vim_keys = true` in config)
 - 🐛 **Debug Mode**: Scrolling debug log for troubleshooting (use `--debug` flag)
 
 ### CLI Mode (Headless)
@@ -530,6 +531,8 @@ instancepedia spot-history m5.large --region us-east-1 --days 7 --format json
 
 #### Instance List
 - `↑` `↓` - Navigate tree (move between categories, families, and instances)
+- `j` `k` - Vim-style navigation (down/up) - requires `vim_keys = true` in config
+- `h` `l` - Vim-style expand/collapse (h = collapse/parent, l = expand/enter) - requires `vim_keys = true`
 - `Enter` - View details (on instance) or expand/collapse (on category/family)
 - `Space` - Expand/collapse category or family
 - `/` - Focus search input
@@ -574,7 +577,42 @@ instancepedia spot-history m5.large --region us-east-1 --days 7 --format json
 
 ## Configuration
 
-You can configure the application using environment variables:
+Instancepedia can be configured via config file or environment variables.
+
+### Config File
+
+Create a config file at `~/.instancepedia/config.toml`:
+
+```toml
+# AWS Configuration
+aws_region = "us-west-2"
+aws_profile = "my-profile"
+
+# Timeout Configuration (in seconds)
+aws_connect_timeout = 10
+aws_read_timeout = 60
+pricing_read_timeout = 90
+
+# Performance Configuration
+pricing_concurrency = 10      # TUI mode concurrent requests
+cli_pricing_concurrency = 5   # CLI mode concurrent requests
+pricing_request_delay_ms = 50 # Delay between requests
+spot_batch_size = 50          # Instance types per spot API call
+ui_update_throttle = 10       # Update UI every N pricing updates
+max_pool_connections = 50     # HTTP connection pool size
+
+# TUI Configuration
+vim_keys = true               # Enable vim-style navigation (hjkl)
+```
+
+**Settings Precedence** (highest to lowest):
+1. Environment variables (`INSTANCEPEDIA_*`)
+2. Config file (`~/.instancepedia/config.toml`)
+3. Default values
+
+### Environment Variables
+
+You can also configure the application using environment variables:
 
 ### AWS Credentials and Region
 - `INSTANCEPEDIA_AWS_REGION` - Default AWS region (default: us-east-1)

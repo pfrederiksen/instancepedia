@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 from src.models.instance_type import InstanceType
 from src.services.free_tier_service import FreeTierService
 from src.debug import DebugLog, DebugPane
+from src.config.settings import Settings
 from textual.containers import Vertical
 from src.ui.region_selector import RegionSelector
 from src.ui.filter_modal import FilterModal, FilterCriteria
@@ -138,6 +139,7 @@ class InstanceList(Screen):
         self._cache_hits = 0  # Track actual cache hits during pricing fetch
         self._total_prices = 0  # Track total prices loaded
         self._marked_for_comparison: List[InstanceType] = []  # Track instances marked for comparison
+        self._settings = Settings()  # Load settings for vim_keys and other options
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -637,9 +639,53 @@ class InstanceList(Screen):
         return label
 
     def on_key(self, event: events.Key) -> None:
-        """Handle key presses"""
+        """Handle key presses including vim-style navigation (hjkl)"""
+        tree = self.query_one("#instance-tree", Tree)
+
+        # Vim-style navigation: j=down, k=up, l=expand/enter, h=collapse/back
+        # Only active when vim_keys is enabled in settings
+        if self._settings.vim_keys:
+            if event.key == "j":
+                # Move cursor down
+                event.prevent_default()
+                event.stop()
+                tree.action_cursor_down()
+                return
+            elif event.key == "k":
+                # Move cursor up
+                event.prevent_default()
+                event.stop()
+                tree.action_cursor_up()
+                return
+            elif event.key == "h":
+                # Collapse current node or go to parent
+                event.prevent_default()
+                event.stop()
+                cursor_node = tree.cursor_node
+                if cursor_node is not None:
+                    if cursor_node.is_expanded:
+                        cursor_node.collapse()
+                    elif cursor_node.parent is not None:
+                        tree.select_node(cursor_node.parent)
+                return
+            elif event.key == "l":
+                # Expand node or enter (same as enter for leaf nodes)
+                event.prevent_default()
+                event.stop()
+                cursor_node = tree.cursor_node
+                if cursor_node is not None:
+                    if cursor_node.data is not None:
+                        # Leaf node - navigate to detail
+                        instance_type_name = cursor_node.data
+                        if instance_type_name in self._instance_type_map:
+                            instance = self._instance_type_map[instance_type_name]
+                            self._navigate_to_detail(instance)
+                    elif not cursor_node.is_expanded:
+                        cursor_node.expand()
+                return
+
+        # Standard enter key handling
         if event.key == "enter":
-            tree = self.query_one("#instance-tree", Tree)
             cursor_node = tree.cursor_node
             if cursor_node is not None:
                 # Check if this is a leaf node (instance) or branch node (category/family)
