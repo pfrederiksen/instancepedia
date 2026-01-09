@@ -18,7 +18,7 @@ from src.models.instance_type import (
 class TestGetAWSClient:
     """Tests for get_aws_client function"""
     
-    @patch('src.cli.commands.AWSClient')
+    @patch('src.cli.commands.base.AWSClient')
     def test_get_aws_client_success(self, mock_aws_client_class):
         """Test successful AWS client creation"""
         mock_client = Mock()
@@ -28,7 +28,7 @@ class TestGetAWSClient:
         assert client == mock_client
         mock_aws_client_class.assert_called_once_with("us-east-1", None)
     
-    @patch('src.cli.commands.AWSClient')
+    @patch('src.cli.commands.base.AWSClient')
     def test_get_aws_client_error(self, mock_aws_client_class):
         """Test AWS client creation with error"""
         mock_aws_client_class.side_effect = ValueError("AWS credentials not found")
@@ -37,12 +37,102 @@ class TestGetAWSClient:
             commands.get_aws_client("us-east-1", None)
 
 
+class TestStatusHelper:
+    """Tests for status() helper function"""
+
+    def test_status_prints_to_stderr_when_not_quiet(self, capsys):
+        """Test status prints message to stderr when quiet=False"""
+        from src.cli.commands.base import status
+        status("Test message", quiet=False)
+        captured = capsys.readouterr()
+        assert captured.err == "Test message\n"
+        assert captured.out == ""
+
+    def test_status_silent_when_quiet(self, capsys):
+        """Test status prints nothing when quiet=True"""
+        from src.cli.commands.base import status
+        status("Test message", quiet=True)
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert captured.out == ""
+
+    def test_status_default_not_quiet(self, capsys):
+        """Test status defaults to quiet=False"""
+        from src.cli.commands.base import status
+        status("Default test")
+        captured = capsys.readouterr()
+        assert captured.err == "Default test\n"
+
+
+class TestProgressHelper:
+    """Tests for progress() helper function"""
+
+    def test_progress_prints_to_stderr_when_not_quiet(self, capsys):
+        """Test progress prints formatted message to stderr when quiet=False"""
+        from src.cli.commands.base import progress
+        progress(5, 10, "items", quiet=False)
+        captured = capsys.readouterr()
+        assert "5/10 items" in captured.err
+        assert captured.out == ""
+
+    def test_progress_silent_when_quiet(self, capsys):
+        """Test progress prints nothing when quiet=True"""
+        from src.cli.commands.base import progress
+        progress(5, 10, "items", quiet=True)
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+    def test_progress_custom_item_type(self, capsys):
+        """Test progress with custom item type"""
+        from src.cli.commands.base import progress
+        progress(3, 7, "instances", quiet=False)
+        captured = capsys.readouterr()
+        assert "3/7 instances" in captured.err
+
+
+class TestWriteOutputHelper:
+    """Tests for write_output() helper function"""
+
+    def test_write_output_to_stdout(self, capsys):
+        """Test write_output writes to stdout when no path given"""
+        from src.cli.commands.base import write_output
+        write_output("Test output", None, quiet=False)
+        captured = capsys.readouterr()
+        assert captured.out == "Test output\n"
+
+    def test_write_output_to_file(self, tmp_path, capsys):
+        """Test write_output writes to file when path given"""
+        from src.cli.commands.base import write_output
+        output_file = tmp_path / "output.txt"
+        write_output("File content", str(output_file), quiet=False)
+
+        # Check file was written
+        assert output_file.read_text() == "File content"
+
+        # Check status message
+        captured = capsys.readouterr()
+        assert "Output written to" in captured.err
+
+    def test_write_output_to_file_quiet(self, tmp_path, capsys):
+        """Test write_output suppresses status message when quiet"""
+        from src.cli.commands.base import write_output
+        output_file = tmp_path / "output.txt"
+        write_output("File content", str(output_file), quiet=True)
+
+        # Check file was written
+        assert output_file.read_text() == "File content"
+
+        # Check no status message
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+
 class TestCmdList:
     """Tests for cmd_list function"""
     
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_list_success(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type):
         """Test successful list command"""
         # Setup mocks
@@ -77,9 +167,9 @@ class TestCmdList:
         mock_service.get_instance_types.assert_called_once_with(fetch_pricing=False)
         mock_formatter.format_instance_list.assert_called_once()
     
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_list_with_search(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type, sample_instance_type_no_pricing):
         """Test list command with search filter"""
         mock_client = Mock()
@@ -123,8 +213,8 @@ class TestCmdList:
         assert len(instances) == 1
         assert instances[0].instance_type == "t3.micro"
     
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
     def test_cmd_list_error(self, mock_get_client, mock_service_class):
         """Test list command with error"""
         mock_client = Mock()
@@ -153,9 +243,9 @@ class TestCmdList:
 class TestCmdShow:
     """Tests for cmd_show function"""
     
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_show_success(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type):
         """Test successful show command"""
         mock_client = Mock()
@@ -184,9 +274,9 @@ class TestCmdShow:
         assert result == 0
         mock_formatter.format_instance_detail.assert_called_once()
     
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_show_not_found(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type):
         """Test show command with instance not found"""
         mock_client = Mock()
@@ -213,10 +303,10 @@ class TestCmdShow:
 class TestCmdPricing:
     """Tests for cmd_pricing function"""
     
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.get_formatter')
     def test_cmd_pricing_success(self, mock_get_formatter, mock_get_client, 
                                   mock_service_class, mock_pricing_service_class, sample_instance_type):
         """Test successful pricing command"""
@@ -254,9 +344,9 @@ class TestCmdPricing:
 class TestCmdRegions:
     """Tests for cmd_regions function"""
     
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_regions_success(self, mock_get_formatter, mock_get_client, mock_settings_class):
         """Test successful regions command"""
         mock_client = Mock()
@@ -286,9 +376,9 @@ class TestCmdRegions:
 class TestCmdCompare:
     """Tests for cmd_compare function"""
     
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_compare_success(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type, sample_instance_type_no_pricing):
         """Test successful compare command"""
         mock_client = Mock()
@@ -321,8 +411,8 @@ class TestCmdCompare:
         assert result == 0
         mock_formatter.format_comparison.assert_called_once()
     
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
     def test_cmd_compare_not_found(self, mock_get_client, mock_service_class, sample_instance_type):
         """Test compare command with instance not found"""
         mock_client = Mock()
@@ -372,9 +462,9 @@ class TestRunCLI:
 class TestCmdSearch:
     """Tests for cmd_search function (alias for cmd_list with search)"""
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_search_success(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type):
         """Test successful search command"""
         mock_client = Mock()
@@ -415,7 +505,7 @@ class TestCmdSearch:
 class TestCmdCacheStats:
     """Tests for cmd_cache_stats function"""
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     def test_cmd_cache_stats_table_format(self, mock_get_cache):
         """Test cache stats with table format"""
         mock_cache = Mock()
@@ -439,7 +529,7 @@ class TestCmdCacheStats:
         assert result == 0
         mock_cache.get_stats.assert_called_once()
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     def test_cmd_cache_stats_json_format(self, mock_get_cache):
         """Test cache stats with JSON format"""
         mock_cache = Mock()
@@ -461,7 +551,7 @@ class TestCmdCacheStats:
 
         assert result == 0
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     def test_cmd_cache_stats_error(self, mock_get_cache):
         """Test cache stats with error"""
         mock_get_cache.side_effect = Exception("Cache error")
@@ -478,7 +568,7 @@ class TestCmdCacheStats:
 class TestCmdCacheClear:
     """Tests for cmd_cache_clear function"""
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     def test_cmd_cache_clear_all_force(self, mock_get_cache):
         """Test clearing all cache with --force"""
         mock_cache = Mock()
@@ -497,7 +587,7 @@ class TestCmdCacheClear:
         assert result == 0
         mock_cache.clear.assert_called_once_with(region=None, instance_type=None)
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     def test_cmd_cache_clear_by_region(self, mock_get_cache):
         """Test clearing cache by region"""
         mock_cache = Mock()
@@ -516,7 +606,7 @@ class TestCmdCacheClear:
         assert result == 0
         mock_cache.clear.assert_called_once_with(region="us-east-1", instance_type=None)
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     def test_cmd_cache_clear_by_instance_type(self, mock_get_cache):
         """Test clearing cache by instance type"""
         mock_cache = Mock()
@@ -535,7 +625,7 @@ class TestCmdCacheClear:
         assert result == 0
         mock_cache.clear.assert_called_once_with(region=None, instance_type="t3.micro")
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     @patch('builtins.input', return_value='n')
     def test_cmd_cache_clear_cancelled(self, mock_input, mock_get_cache):
         """Test cache clear cancelled by user"""
@@ -554,7 +644,7 @@ class TestCmdCacheClear:
         assert result == 0
         mock_cache.clear.assert_not_called()
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     @patch('builtins.input', return_value='y')
     def test_cmd_cache_clear_confirmed(self, mock_input, mock_get_cache):
         """Test cache clear confirmed by user"""
@@ -574,7 +664,7 @@ class TestCmdCacheClear:
         assert result == 0
         mock_cache.clear.assert_called_once()
 
-    @patch('src.cli.commands.get_pricing_cache')
+    @patch('src.cli.commands.cache_commands.get_pricing_cache')
     def test_cmd_cache_clear_error(self, mock_get_cache):
         """Test cache clear with error"""
         mock_cache = Mock()
@@ -596,10 +686,10 @@ class TestCmdCacheClear:
 class TestCmdCostEstimate:
     """Tests for cmd_cost_estimate function"""
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.get_formatter')
     def test_cmd_cost_estimate_on_demand(self, mock_get_formatter, mock_get_client,
                                           mock_service_class, mock_pricing_class, sample_instance_type):
         """Test cost estimate with on-demand pricing"""
@@ -631,10 +721,10 @@ class TestCmdCostEstimate:
 
         assert result == 0
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.get_formatter')
     def test_cmd_cost_estimate_spot(self, mock_get_formatter, mock_get_client,
                                      mock_service_class, mock_pricing_class, sample_instance_type):
         """Test cost estimate with spot pricing"""
@@ -666,10 +756,10 @@ class TestCmdCostEstimate:
 
         assert result == 0
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.get_formatter')
     def test_cmd_cost_estimate_instance_not_found(self, mock_get_formatter, mock_get_client,
                                                    mock_service_class, mock_pricing_class):
         """Test cost estimate with instance not found"""
@@ -692,9 +782,9 @@ class TestCmdCostEstimate:
 
         assert result == 1
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
     def test_cmd_cost_estimate_pricing_unavailable(self, mock_get_client, mock_service_class,
                                                     mock_pricing_class, sample_instance_type):
         """Test cost estimate when pricing is unavailable"""
@@ -730,9 +820,9 @@ class TestCmdCostEstimate:
 class TestCmdCompareRegions:
     """Tests for cmd_compare_regions function"""
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
     def test_cmd_compare_regions_success(self, mock_get_client, mock_service_class,
                                           mock_pricing_class, sample_instance_type):
         """Test successful region comparison"""
@@ -761,9 +851,9 @@ class TestCmdCompareRegions:
 
         assert result == 0
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
     def test_cmd_compare_regions_json_format(self, mock_get_client, mock_service_class,
                                               mock_pricing_class, sample_instance_type):
         """Test region comparison with JSON format"""
@@ -792,9 +882,9 @@ class TestCmdCompareRegions:
 
         assert result == 0
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
     def test_cmd_compare_regions_instance_not_found(self, mock_get_client, mock_service_class, mock_pricing_class):
         """Test region comparison when instance not found in a region"""
         mock_client = Mock()
@@ -822,10 +912,10 @@ class TestCmdCompareRegions:
 class TestCmdCompareFamily:
     """Tests for cmd_compare_family function"""
 
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_compare_family_success(self, mock_get_formatter, mock_get_client,
                                          mock_service_class, mock_settings_class, sample_instance_type):
         """Test successful family comparison"""
@@ -874,9 +964,9 @@ class TestCmdCompareFamily:
 
         assert result == 0
 
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
     def test_cmd_compare_family_not_found(self, mock_get_client, mock_service_class, mock_settings_class):
         """Test family comparison with no instances found"""
         mock_client = Mock()
@@ -899,9 +989,9 @@ class TestCmdCompareFamily:
 
         assert result == 1
 
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
     def test_cmd_compare_family_json_format(self, mock_get_client, mock_service_class,
                                              mock_settings_class, sample_instance_type):
         """Test family comparison with JSON format"""
@@ -931,7 +1021,7 @@ class TestCmdCompareFamily:
 class TestCmdPresetsList:
     """Tests for cmd_presets_list function"""
 
-    @patch('src.cli.commands.FilterPresetService')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
     def test_cmd_presets_list_table_format(self, mock_service_class):
         """Test listing presets with table format"""
         mock_service = Mock()
@@ -948,7 +1038,7 @@ class TestCmdPresetsList:
         assert result == 0
         mock_service.get_all_presets.assert_called_once()
 
-    @patch('src.cli.commands.FilterPresetService')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
     def test_cmd_presets_list_json_format(self, mock_service_class):
         """Test listing presets with JSON format"""
         mock_service = Mock()
@@ -974,7 +1064,7 @@ class TestCmdPresetsList:
 
         assert result == 0
 
-    @patch('src.cli.commands.FilterPresetService')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
     def test_cmd_presets_list_error(self, mock_service_class):
         """Test listing presets with error"""
         mock_service_class.side_effect = Exception("Service error")
@@ -990,11 +1080,11 @@ class TestCmdPresetsList:
 class TestCmdPresetsApply:
     """Tests for cmd_presets_apply function"""
 
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.FilterPresetService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_presets_apply_success(self, mock_get_formatter, mock_get_client,
                                         mock_service_class, mock_preset_service_class,
                                         mock_settings_class, sample_instance_type):
@@ -1042,7 +1132,7 @@ class TestCmdPresetsApply:
 
         assert result == 0
 
-    @patch('src.cli.commands.FilterPresetService')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
     def test_cmd_presets_apply_not_found(self, mock_preset_service_class):
         """Test applying a preset that doesn't exist"""
         mock_preset_service = Mock()
@@ -1057,11 +1147,11 @@ class TestCmdPresetsApply:
 
         assert result == 1
 
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.FilterPresetService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_cmd_presets_apply_with_filters(self, mock_get_formatter, mock_get_client,
                                              mock_service_class, mock_preset_service_class,
                                              mock_settings_class, sample_instance_type):
@@ -1113,8 +1203,8 @@ class TestCmdPresetsApply:
 class TestCmdSpotHistory:
     """Tests for cmd_spot_history function"""
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
     def test_cmd_spot_history_success(self, mock_get_client, mock_pricing_class):
         """Test successful spot history fetch"""
         from datetime import datetime
@@ -1159,8 +1249,8 @@ class TestCmdSpotHistory:
 
         assert result == 0
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
     def test_cmd_spot_history_json_format(self, mock_get_client, mock_pricing_class):
         """Test spot history with JSON format"""
         from datetime import datetime
@@ -1203,8 +1293,8 @@ class TestCmdSpotHistory:
 
         assert result == 0
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
     def test_cmd_spot_history_no_data(self, mock_get_client, mock_pricing_class):
         """Test spot history when no data available"""
         mock_client = Mock()
@@ -1228,8 +1318,8 @@ class TestCmdSpotHistory:
 
         assert result == 1
 
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.get_aws_client')
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
     def test_cmd_spot_history_error(self, mock_get_client, mock_pricing_class):
         """Test spot history with error"""
         mock_client = Mock()
@@ -1257,9 +1347,9 @@ class TestCmdSpotHistory:
 class TestCLIFilters:
     """Tests for CLI filter integration"""
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_storage_type_ebs_only_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_ebs_only, instance_with_instance_store
@@ -1305,9 +1395,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "t3.small"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_storage_type_instance_store_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_ebs_only, instance_with_instance_store
@@ -1353,9 +1443,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "i3.large"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_nvme_required_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_with_instance_store, instance_nvme_supported, instance_ebs_only
@@ -1402,9 +1492,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "i3.large"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_nvme_supported_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_with_instance_store, instance_nvme_supported, instance_ebs_only
@@ -1451,9 +1541,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "m5d.large"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_nvme_unsupported_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_with_instance_store, instance_nvme_supported, instance_ebs_only
@@ -1500,9 +1590,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "t3.small"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_processor_family_intel_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         sample_instance_type, instance_amd, instance_graviton
@@ -1549,9 +1639,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "t3.micro"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_processor_family_amd_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         sample_instance_type, instance_amd, instance_graviton
@@ -1598,9 +1688,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "m5a.large"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_processor_family_graviton_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         sample_instance_type, instance_amd, instance_graviton
@@ -1647,9 +1737,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "m6g.large"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_network_performance_low_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_low_network, sample_instance_type, instance_very_high_network
@@ -1699,9 +1789,9 @@ class TestCLIFilters:
         assert "t2.nano" in instance_types
         assert "t3.micro" in instance_types
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_network_performance_high_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_low_network, instance_high_network, instance_very_high_network
@@ -1749,9 +1839,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "c5n.xlarge"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_network_performance_very_high_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_low_network, instance_high_network, instance_very_high_network
@@ -1799,11 +1889,11 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "c5n.18xlarge"
 
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.instance_commands.PricingService')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_min_price_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         mock_pricing_class, mock_settings_class,
@@ -1861,11 +1951,11 @@ class TestCLIFilters:
         assert "t3.micro" in instance_types       # $0.0104 > $0.01
         assert "p4d.24xlarge" in instance_types   # $32.77 > $0.01
 
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.instance_commands.PricingService')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_max_price_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         mock_pricing_class, mock_settings_class,
@@ -1920,11 +2010,11 @@ class TestCLIFilters:
         assert "t3.micro" in instance_types       # $0.0104 < $0.05
         assert "p4d.24xlarge" not in instance_types  # $32.77 > $0.05
 
-    @patch('src.cli.commands.Settings')
-    @patch('src.cli.commands.PricingService')
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.Settings')
+    @patch('src.cli.commands.instance_commands.PricingService')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_price_range_filter(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         mock_pricing_class, mock_settings_class,
@@ -1977,9 +2067,9 @@ class TestCLIFilters:
         assert len(instances) == 1
         assert instances[0].instance_type == "t3.micro"
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_price_filter_keeps_instances_without_pricing(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         sample_instance_type, sample_instance_type_no_pricing
@@ -2028,9 +2118,9 @@ class TestCLIFilters:
         assert "t3.micro" in instance_types
         assert "m5.large" in instance_types  # Kept despite no pricing
 
-    @patch('src.cli.commands.InstanceService')
-    @patch('src.cli.commands.get_aws_client')
-    @patch('src.cli.commands.get_formatter')
+    @patch('src.cli.commands.instance_commands.InstanceService')
+    @patch('src.cli.commands.instance_commands.get_aws_client')
+    @patch('src.cli.commands.instance_commands.get_formatter')
     def test_combined_filters(
         self, mock_get_formatter, mock_get_client, mock_service_class,
         instance_with_instance_store, instance_ebs_only, instance_graviton,

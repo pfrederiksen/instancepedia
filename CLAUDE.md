@@ -94,7 +94,7 @@ Update `TROUBLESHOOTING.md` when you:
 
 ### Test Requirements
 
-1. **All CLI commands must have tests** - Every `cmd_*` function in `src/cli/commands.py` requires tests in `tests/test_cli_commands.py`
+1. **All CLI commands must have tests** - Every `cmd_*` function in `src/cli/commands/` requires tests in `tests/test_cli_commands.py`
 2. **All services must have tests** - New service methods require unit tests with mocked dependencies
 3. **All TUI components must have tests** - New screens, widgets, or interactions require TUI tests
 4. **Error cases must be tested** - Test both success and failure scenarios
@@ -194,6 +194,30 @@ The CLI provides the following commands for users:
 - `cache clear` - Clear cache entries
 - `spot-history` - Show historical spot price trends with statistics and volatility analysis
 
+### CLI Module Architecture
+
+Commands are organized in `src/cli/commands/` package:
+
+```
+src/cli/commands/
+├── __init__.py           # Package init, exports all commands
+├── base.py               # Common utilities (status, progress, print_error, get_aws_client, write_output)
+├── instance_commands.py  # cmd_list, cmd_show, cmd_search, cmd_compare, cmd_compare_family, cmd_regions
+├── pricing_commands.py   # cmd_pricing, cmd_cost_estimate, cmd_compare_regions, cmd_spot_history
+├── cache_commands.py     # cmd_cache_stats, cmd_cache_clear
+└── preset_commands.py    # cmd_presets_list, cmd_presets_apply
+```
+
+**Base Utilities** (`src/cli/commands/base.py`):
+- `status(message, quiet)` - Print status message to stderr (respects quiet mode)
+- `progress(completed, total, item_type, quiet)` - Print progress update
+- `print_error(message, debug, exception)` - Print error with optional traceback
+- `get_aws_client(region, profile)` - Create AWS client with error handling
+- `fetch_instance_pricing(pricing_service, instance_type, region, include_ri)` - Fetch all pricing types
+- `write_output(output, output_path, quiet)` - Write to file or stdout
+
+**Backwards Compatibility**: `src/cli/commands.py` re-exports all commands for compatibility.
+
 ### Shell Completions
 
 Tab completion scripts are provided for bash and zsh shells in `scripts/completions/`:
@@ -274,14 +298,14 @@ Advanced filtering options provide fine-grained control over instance selection:
 - TUI: Price Range input fields in filter modal
 - CLI: `--min-price <float> --max-price <float>`
 
-**Implementation** (`src/ui/filter_modal.py`, `src/ui/instance_list.py`, `src/cli/commands.py`):
+**Implementation** (`src/ui/filter_modal.py`, `src/ui/instance_list.py`, `src/cli/commands/instance_commands.py`):
 - Added `processor_family`, `network_performance`, `min_price`, `max_price` to `FilterCriteria`
 - Processor family uses heuristics (AMD has 'a' suffix, Graviton has arm64 arch)
 - Network performance maps to keyword patterns in `network_info.network_performance`
 - Price filter applied after pricing fetch in CLI, immediately in TUI
 - All filters work in both TUI (filter modal) and CLI (command-line arguments)
 
-**CLI Integration** (`src/cli/parser.py`, `src/cli/commands.py`):
+**CLI Integration** (`src/cli/parser.py`, `src/cli/commands/instance_commands.py`):
 - `--storage-type` argument: `ebs-only` or `instance-store`
 - `--nvme` argument: `required`, `supported`, or `unsupported`
 - Available for both `list` and `search` commands
@@ -327,7 +351,7 @@ The spot price history feature (`spot-history` command) provides historical anal
 - Bar lengths proportional to price values
 - Includes price labels for clarity
 
-**CLI Integration** (`src/cli/commands.py`):
+**CLI Integration** (`src/cli/commands/pricing_commands.py`):
 - `cmd_spot_history()` handler with table and JSON output formats
 - `--days` argument for customizable time periods (default: 30 days)
 - Graceful error handling for regions/instances without spot pricing
@@ -336,7 +360,7 @@ The spot price history feature (`spot-history` command) provides historical anal
 - Reference message in instance detail pricing section
 - Directs users to CLI command for full analysis
 
-All commands are implemented in `src/cli/commands.py` with argument parsing in `src/cli/parser.py`.
+All commands are organized in `src/cli/commands/` package with argument parsing in `src/cli/parser.py`.
 
 ### Reserved Instance Pricing
 
@@ -387,7 +411,7 @@ The Reserved Instance (RI) pricing feature provides comprehensive pricing for St
 - Fetched in background via `_fetch_pricing_if_needed()`
 - Proper cleanup: `on_unmount()` cancels pricing worker and closes async client
 
-**CLI Integration** (`src/cli/commands.py`, `src/cli/output.py`):
+**CLI Integration** (`src/cli/commands/instance_commands.py`, `src/cli/output.py`):
 - Fetched in `cmd_show()` when `--include-pricing` flag is used
 - TableFormatter displays RI sections with savings percentages
 - JSONFormatter includes nested `reserved_instances` object:
@@ -1065,7 +1089,7 @@ instancepedia cache clear --instance-type t3.micro
 instancepedia cache clear --force
 ```
 
-**Implementation** (`src/cli/commands.py`):
+**Implementation** (`src/cli/commands/cache_commands.py`):
 - `cmd_cache_stats()` - Shows cache location, entries, size, age
 - `cmd_cache_clear()` - Clears cache with optional filters and confirmation
 
