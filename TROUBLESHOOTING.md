@@ -217,26 +217,33 @@ This region may not be enabled for your account.
 
 **Symptoms:**
 ```
-Could not connect to the endpoint URL
+Error: Invalid region 'us-east'. Did you mean: us-east-1, us-east-2?
+Use 'instancepedia regions' to see available regions.
 ```
+
+The CLI now validates region names before making AWS API calls and suggests similar valid regions if you make a typo.
 
 **Solutions:**
 
-1. **List valid regions**:
+1. **Check the suggested regions** in the error message - the CLI will suggest up to 3 similar valid region names
+
+2. **List all valid regions**:
    ```bash
    instancepedia regions
    ```
 
-2. **Check region spelling**:
+3. **Common region name mistakes**:
    ```bash
    # Correct:
    instancepedia --tui --region us-east-1
 
-   # Incorrect:
-   instancepedia --tui --region us-east1  # Missing hyphen
+   # Incorrect (will show suggestions):
+   instancepedia --tui --region us-east1    # Missing hyphen
+   instancepedia --tui --region useast-1    # Missing hyphen
+   instancepedia --tui --region us-east     # Missing suffix
    ```
 
-3. **Verify region exists**:
+4. **Verify region exists with AWS CLI**:
    ```bash
    aws ec2 describe-regions --all-regions
    ```

@@ -36,8 +36,13 @@ from .base import (
     status,
     progress,
     print_error,
+    validate_region,
+    validate_regions,
     get_aws_client,
+    get_instance_by_name,
+    get_instances_by_names,
     fetch_instance_pricing,
+    safe_write_file,
     write_output,
 )
 
@@ -74,8 +79,13 @@ __all__ = [
     'status',
     'progress',
     'print_error',
+    'validate_region',
+    'validate_regions',
     'get_aws_client',
+    'get_instance_by_name',
+    'get_instances_by_names',
     'fetch_instance_pricing',
+    'safe_write_file',
     'write_output',
     # Runner
     'run_cli',

@@ -201,7 +201,7 @@ Commands are organized in `src/cli/commands/` package:
 ```
 src/cli/commands/
 ├── __init__.py           # Package init, exports all commands
-├── base.py               # Common utilities (status, progress, print_error, get_aws_client, write_output)
+├── base.py               # Common utilities (validation, instance fetching, file I/O)
 ├── instance_commands.py  # cmd_list, cmd_show, cmd_search, cmd_compare, cmd_compare_family, cmd_regions
 ├── pricing_commands.py   # cmd_pricing, cmd_cost_estimate, cmd_compare_regions, cmd_spot_history
 ├── cache_commands.py     # cmd_cache_stats, cmd_cache_clear
@@ -212,8 +212,13 @@ src/cli/commands/
 - `status(message, quiet)` - Print status message to stderr (respects quiet mode)
 - `progress(completed, total, item_type, quiet)` - Print progress update
 - `print_error(message, debug, exception)` - Print error with optional traceback
+- `validate_region(region, exit_on_error)` - Validate region with helpful error messages and suggestions
+- `validate_regions(regions, exit_on_error)` - Validate multiple regions
 - `get_aws_client(region, profile)` - Create AWS client with error handling
+- `get_instance_by_name(aws_client, instance_type, region, quiet, fetch_pricing)` - Fetch and find single instance
+- `get_instances_by_names(aws_client, instance_types, region, quiet)` - Fetch and find multiple instances
 - `fetch_instance_pricing(pricing_service, instance_type, region, include_ri)` - Fetch all pricing types
+- `safe_write_file(file_path, content, create_dirs)` - Write file with error handling and directory creation
 - `write_output(output, output_path, quiet)` - Write to file or stdout
 
 **Backwards Compatibility**: `src/cli/commands.py` re-exports all commands for compatibility.
@@ -265,11 +270,11 @@ Storage-focused filtering allows users to find instances based on storage charac
   - `supported`: Instances that support NVMe
   - `unsupported`: Instances without NVMe support
 
-**Implementation** (`src/ui/filter_modal.py`, `src/ui/instance_list.py`):
-- Added `storage_type` and `nvme_support` fields to `FilterCriteria`
+**Implementation** (`src/services/filter_service.py`, `src/ui/filter_modal.py`):
+- `storage_type` and `nvme_support` fields in `FilterCriteria` dataclass
 - Storage type filter checks `instance_storage_info.total_size_in_gb`
 - NVMe filter checks `instance_storage_info.nvme_support`
-- Filters applied in `_apply_filters()` method
+- Unified filtering via `apply_filters()` function
 
 ### Advanced Filtering
 
@@ -298,8 +303,30 @@ Advanced filtering options provide fine-grained control over instance selection:
 - TUI: Price Range input fields in filter modal
 - CLI: `--min-price <float> --max-price <float>`
 
-**Implementation** (`src/ui/filter_modal.py`, `src/ui/instance_list.py`, `src/cli/commands/instance_commands.py`):
-- Added `processor_family`, `network_performance`, `min_price`, `max_price` to `FilterCriteria`
+**Unified Filter Service** (`src/services/filter_service.py`):
+The `FilterCriteria` dataclass and `apply_filters()` function provide unified filtering logic shared between TUI and CLI:
+
+```python
+from src.services.filter_service import FilterCriteria, apply_filters
+
+# Create criteria from CLI args
+criteria = FilterCriteria.from_cli_args(args)
+
+# Or create manually
+criteria = FilterCriteria(
+    min_vcpu=4,
+    min_memory=8.0,
+    processor_family="graviton",
+    current_gen_only=True
+)
+
+# Apply filters
+filtered = apply_filters(instances, criteria)
+```
+
+- `FilterCriteria` dataclass contains all filter fields (search, vcpu, memory, GPU, generation, etc.)
+- `apply_filters()` applies all active filters to an instance list
+- `FilterCriteria.from_cli_args()` maps CLI arguments to filter criteria
 - Processor family uses heuristics (AMD has 'a' suffix, Graviton has arm64 arch)
 - Network performance maps to keyword patterns in `network_info.network_performance`
 - Price filter applied after pricing fetch in CLI, immediately in TUI
@@ -693,10 +720,38 @@ The application supports fine-grained performance tuning via configuration setti
 - Reduces UI flicker and improves responsiveness
 - Higher values for large instance lists, lower values for better progress visibility
 
-**Performance Metrics:**
-- Async pricing service logs timing and throughput metrics
-- Logs: "Batch pricing fetch completed in Xs: Y/Z prices fetched (success rate)"
-- Helps users tune performance settings for their environment
+**Performance Metrics (PricingMetrics):**
+The `PricingMetrics` dataclass (`src/services/async_pricing_service.py`) tracks pricing fetch performance:
+
+- **Fields**: `total_requests`, `cache_hits`, `api_calls`, `successful_fetches`, `failed_fetches`, `start_time`, `end_time`
+- **Calculated Properties**:
+  - `cache_hit_rate` - Percentage of requests served from cache
+  - `success_rate` - Percentage of successful fetches (cache + API)
+  - `elapsed_time` - Total time in seconds
+  - `requests_per_second` - Throughput metric
+- **Methods**:
+  - `record_cache_hit()` - Track a cache hit
+  - `record_api_call(success)` - Track an API call result
+  - `finish()` - Mark collection complete (freezes elapsed_time)
+  - `to_dict()` - Convert to dictionary for JSON serialization
+  - `summary()` - Human-readable summary string
+
+**Usage:**
+```python
+# Get metrics from batch pricing
+results, metrics = await service.get_on_demand_prices_batch(
+    instance_types,
+    region,
+    return_metrics=True  # Request metrics
+)
+print(metrics.summary())  # "Pricing: 450/500 (90% success, 45% cached) in 12.3s"
+print(metrics.to_dict())  # For JSON logging
+```
+
+**Logging:**
+- Batch methods automatically log `metrics.summary()` at completion
+- Logs throughput as requests/second for tuning
+- Example: "Pricing: 450/500 (90% success, 45% cached) in 12.3s"
 
 **Usage in Code:**
 ```python

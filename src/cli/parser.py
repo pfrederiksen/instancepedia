@@ -3,13 +3,27 @@
 import argparse
 from src.cli import commands
 from src.config.settings import Settings
+from src.models.region import is_valid_region, AWS_REGIONS
+
+
+def region_type(value: str) -> str:
+    """Argparse type validator for AWS region codes."""
+    if is_valid_region(value):
+        return value
+    # Find similar regions for helpful error
+    similar = [r for r in AWS_REGIONS.keys() if value in r or r in value]
+    hint = f" Did you mean: {', '.join(similar[:3])}?" if similar else ""
+    raise argparse.ArgumentTypeError(
+        f"Invalid region '{value}'.{hint}\n"
+        "Use 'instancepedia regions' to see available regions."
+    )
 
 
 def add_common_args(parser: argparse.ArgumentParser):
     """Add common arguments to a parser"""
     parser.add_argument(
         "--region",
-        type=str,
+        type=region_type,
         default=None,
         help="AWS region (default: from config or us-east-1)"
     )

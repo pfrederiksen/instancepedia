@@ -1,7 +1,9 @@
 """Tests for CLI argument parser"""
 
+import argparse
 import pytest
-from src.cli.parser import create_parser, parse_args
+from src.cli.parser import create_parser, parse_args, region_type
+from src.cli.commands.base import validate_region, validate_regions
 
 
 class TestParser:
@@ -117,3 +119,55 @@ class TestParser:
         """Test parsing include-pricing option"""
         args = parse_args(["list", "--include-pricing"])
         assert args.include_pricing is True
+
+
+class TestRegionValidation:
+    """Tests for region validation utilities"""
+
+    def test_region_type_valid(self):
+        """Test region_type accepts valid regions"""
+        assert region_type("us-east-1") == "us-east-1"
+        assert region_type("eu-west-1") == "eu-west-1"
+        assert region_type("ap-southeast-2") == "ap-southeast-2"
+
+    def test_region_type_invalid(self):
+        """Test region_type rejects invalid regions with helpful error"""
+        with pytest.raises(argparse.ArgumentTypeError) as exc_info:
+            region_type("invalid-region")
+        error_msg = str(exc_info.value)
+        assert "Invalid region 'invalid-region'" in error_msg
+        assert "instancepedia regions" in error_msg
+
+    def test_region_type_similar_suggestions(self):
+        """Test region_type suggests similar region names"""
+        with pytest.raises(argparse.ArgumentTypeError) as exc_info:
+            region_type("us-east")  # Close to us-east-1, us-east-2
+        error_msg = str(exc_info.value)
+        assert "Did you mean:" in error_msg
+
+    def test_validate_region_valid(self):
+        """Test validate_region returns True for valid regions"""
+        assert validate_region("us-east-1", exit_on_error=False) is True
+        assert validate_region("eu-west-1", exit_on_error=False) is True
+
+    def test_validate_region_invalid(self):
+        """Test validate_region returns False for invalid regions"""
+        assert validate_region("invalid", exit_on_error=False) is False
+        assert validate_region("foo-bar-1", exit_on_error=False) is False
+
+    def test_validate_regions_all_valid(self):
+        """Test validate_regions returns empty list for all valid regions"""
+        invalid = validate_regions(["us-east-1", "us-west-2", "eu-west-1"], exit_on_error=False)
+        assert invalid == []
+
+    def test_validate_regions_some_invalid(self):
+        """Test validate_regions returns list of invalid regions"""
+        invalid = validate_regions(["us-east-1", "invalid", "foo"], exit_on_error=False)
+        assert "invalid" in invalid
+        assert "foo" in invalid
+        assert "us-east-1" not in invalid
+
+    def test_parser_rejects_invalid_region(self):
+        """Test parser rejects invalid region at parse time"""
+        with pytest.raises(SystemExit):
+            parse_args(["list", "--region", "invalid-region"])

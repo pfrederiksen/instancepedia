@@ -127,6 +127,46 @@ class TestWriteOutputHelper:
         assert captured.err == ""
 
 
+class TestSafeWriteFile:
+    """Tests for safe_write_file function"""
+
+    def test_safe_write_file_basic(self, tmp_path):
+        """Test basic file writing"""
+        from src.cli.commands.base import safe_write_file
+        output_file = tmp_path / "test.txt"
+        safe_write_file(str(output_file), "Test content")
+
+        assert output_file.read_text() == "Test content"
+
+    def test_safe_write_file_creates_parent_dirs(self, tmp_path):
+        """Test that parent directories are created"""
+        from src.cli.commands.base import safe_write_file
+        output_file = tmp_path / "nested" / "dir" / "test.txt"
+        safe_write_file(str(output_file), "Test content")
+
+        assert output_file.exists()
+        assert output_file.read_text() == "Test content"
+
+    def test_safe_write_file_no_create_dirs(self, tmp_path):
+        """Test that missing parent dirs raise error when create_dirs=False"""
+        from src.cli.commands.base import safe_write_file
+        import pytest
+
+        output_file = tmp_path / "nonexistent" / "test.txt"
+        with pytest.raises(IOError):
+            safe_write_file(str(output_file), "Test content", create_dirs=False)
+
+    def test_safe_write_file_overwrites_existing(self, tmp_path):
+        """Test that existing files are overwritten"""
+        from src.cli.commands.base import safe_write_file
+        output_file = tmp_path / "test.txt"
+        output_file.write_text("Original content")
+
+        safe_write_file(str(output_file), "New content")
+
+        assert output_file.read_text() == "New content"
+
+
 class TestCmdList:
     """Tests for cmd_list function"""
     
@@ -242,23 +282,20 @@ class TestCmdList:
 
 class TestCmdShow:
     """Tests for cmd_show function"""
-    
-    @patch('src.cli.commands.instance_commands.InstanceService')
+
+    @patch('src.cli.commands.instance_commands.get_instance_by_name')
     @patch('src.cli.commands.instance_commands.get_aws_client')
     @patch('src.cli.commands.instance_commands.get_formatter')
-    def test_cmd_show_success(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type):
+    def test_cmd_show_success(self, mock_get_formatter, mock_get_client, mock_get_instance, sample_instance_type):
         """Test successful show command"""
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-        
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = [sample_instance_type]
-        mock_service_class.return_value = mock_service
-        
+        mock_get_instance.return_value = sample_instance_type
+
         mock_formatter = Mock()
         mock_formatter.format_instance_detail.return_value = "formatted output"
         mock_get_formatter.return_value = mock_formatter
-        
+
         args = Mock()
         args.instance_type = "t3.micro"
         args.region = "us-east-1"
@@ -268,24 +305,21 @@ class TestCmdShow:
         args.quiet = False
         args.debug = False
         args.include_pricing = False
-        
+
         result = commands.cmd_show(args)
-        
+
         assert result == 0
         mock_formatter.format_instance_detail.assert_called_once()
-    
-    @patch('src.cli.commands.instance_commands.InstanceService')
+
+    @patch('src.cli.commands.instance_commands.get_instance_by_name')
     @patch('src.cli.commands.instance_commands.get_aws_client')
     @patch('src.cli.commands.instance_commands.get_formatter')
-    def test_cmd_show_not_found(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type):
+    def test_cmd_show_not_found(self, mock_get_formatter, mock_get_client, mock_get_instance, sample_instance_type):
         """Test show command with instance not found"""
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-        
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = [sample_instance_type]
-        mock_service_class.return_value = mock_service
-        
+        mock_get_instance.return_value = None  # Instance not found
+
         args = Mock()
         args.instance_type = "invalid.type"
         args.region = "us-east-1"
@@ -295,37 +329,34 @@ class TestCmdShow:
         args.quiet = False
         args.debug = False
         args.include_pricing = False
-        
+
         result = commands.cmd_show(args)
         assert result == 1
 
 
 class TestCmdPricing:
     """Tests for cmd_pricing function"""
-    
+
+    @patch('src.cli.commands.pricing_commands.fetch_instance_pricing')
     @patch('src.cli.commands.pricing_commands.PricingService')
-    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_instance_by_name')
     @patch('src.cli.commands.pricing_commands.get_aws_client')
     @patch('src.cli.commands.pricing_commands.get_formatter')
-    def test_cmd_pricing_success(self, mock_get_formatter, mock_get_client, 
-                                  mock_service_class, mock_pricing_service_class, sample_instance_type):
+    def test_cmd_pricing_success(self, mock_get_formatter, mock_get_client,
+                                  mock_get_instance, mock_pricing_service_class,
+                                  mock_fetch_pricing, sample_instance_type):
         """Test successful pricing command"""
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-        
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = [sample_instance_type]
-        mock_service_class.return_value = mock_service
-        
+        mock_get_instance.return_value = sample_instance_type
+
         mock_pricing_service = Mock()
-        mock_pricing_service.get_on_demand_price.return_value = 0.0104
-        mock_pricing_service.get_spot_price.return_value = 0.0031
         mock_pricing_service_class.return_value = mock_pricing_service
-        
+
         mock_formatter = Mock()
         mock_formatter.format_pricing.return_value = "formatted output"
         mock_get_formatter.return_value = mock_formatter
-        
+
         args = Mock()
         args.instance_type = "t3.micro"
         args.region = "us-east-1"
@@ -334,9 +365,9 @@ class TestCmdPricing:
         args.output = None
         args.quiet = False
         args.debug = False
-        
+
         result = commands.cmd_pricing(args)
-        
+
         assert result == 0
         mock_formatter.format_pricing.assert_called_once()
 
@@ -375,26 +406,20 @@ class TestCmdRegions:
 
 class TestCmdCompare:
     """Tests for cmd_compare function"""
-    
-    @patch('src.cli.commands.instance_commands.InstanceService')
+
+    @patch('src.cli.commands.instance_commands.get_instances_by_names')
     @patch('src.cli.commands.instance_commands.get_aws_client')
     @patch('src.cli.commands.instance_commands.get_formatter')
-    def test_cmd_compare_success(self, mock_get_formatter, mock_get_client, mock_service_class, sample_instance_type, sample_instance_type_no_pricing):
+    def test_cmd_compare_success(self, mock_get_formatter, mock_get_client, mock_get_instances, sample_instance_type, sample_instance_type_no_pricing):
         """Test successful compare command"""
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-        
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = [
-            sample_instance_type,
-            sample_instance_type_no_pricing
-        ]
-        mock_service_class.return_value = mock_service
-        
+        mock_get_instances.return_value = [sample_instance_type, sample_instance_type_no_pricing]
+
         mock_formatter = Mock()
         mock_formatter.format_comparison.return_value = "formatted output"
         mock_get_formatter.return_value = mock_formatter
-        
+
         args = Mock()
         args.instance_type1 = "t3.micro"
         args.instance_type2 = "m5.large"
@@ -405,23 +430,20 @@ class TestCmdCompare:
         args.quiet = False
         args.debug = False
         args.include_pricing = False
-        
+
         result = commands.cmd_compare(args)
-        
+
         assert result == 0
         mock_formatter.format_comparison.assert_called_once()
-    
-    @patch('src.cli.commands.instance_commands.InstanceService')
+
+    @patch('src.cli.commands.instance_commands.get_instances_by_names')
     @patch('src.cli.commands.instance_commands.get_aws_client')
-    def test_cmd_compare_not_found(self, mock_get_client, mock_service_class, sample_instance_type):
+    def test_cmd_compare_not_found(self, mock_get_client, mock_get_instances, sample_instance_type):
         """Test compare command with instance not found"""
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-        
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = [sample_instance_type]
-        mock_service_class.return_value = mock_service
-        
+        mock_get_instances.return_value = [sample_instance_type, None]  # Second instance not found
+
         args = Mock()
         args.instance_type1 = "t3.micro"
         args.instance_type2 = "invalid.type"
@@ -432,7 +454,7 @@ class TestCmdCompare:
         args.quiet = False
         args.debug = False
         args.include_pricing = False
-        
+
         result = commands.cmd_compare(args)
         assert result == 1
 
@@ -686,24 +708,26 @@ class TestCmdCacheClear:
 class TestCmdCostEstimate:
     """Tests for cmd_cost_estimate function"""
 
+    @patch('src.cli.commands.pricing_commands.fetch_instance_pricing')
     @patch('src.cli.commands.pricing_commands.PricingService')
-    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_instance_by_name')
     @patch('src.cli.commands.pricing_commands.get_aws_client')
-    @patch('src.cli.commands.pricing_commands.get_formatter')
-    def test_cmd_cost_estimate_on_demand(self, mock_get_formatter, mock_get_client,
-                                          mock_service_class, mock_pricing_class, sample_instance_type):
+    def test_cmd_cost_estimate_on_demand(self, mock_get_client, mock_get_instance,
+                                          mock_pricing_class, mock_fetch_pricing, sample_instance_type):
         """Test cost estimate with on-demand pricing"""
+        from src.models.instance_type import PricingInfo
+
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = [sample_instance_type]
-        mock_service_class.return_value = mock_service
+        mock_get_instance.return_value = sample_instance_type
 
         mock_pricing = Mock()
-        mock_pricing.get_on_demand_price.return_value = 0.0104
-        mock_pricing.get_spot_price.return_value = 0.0031
         mock_pricing_class.return_value = mock_pricing
+
+        # Mock fetch_instance_pricing to set pricing on the instance
+        def set_pricing(pricing_service, instance_type, region):
+            return PricingInfo(on_demand_price=0.0104, spot_price=0.0031)
+        mock_fetch_pricing.side_effect = set_pricing
 
         args = Mock()
         args.instance_type = "t3.micro"
@@ -721,24 +745,25 @@ class TestCmdCostEstimate:
 
         assert result == 0
 
+    @patch('src.cli.commands.pricing_commands.fetch_instance_pricing')
     @patch('src.cli.commands.pricing_commands.PricingService')
-    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_instance_by_name')
     @patch('src.cli.commands.pricing_commands.get_aws_client')
-    @patch('src.cli.commands.pricing_commands.get_formatter')
-    def test_cmd_cost_estimate_spot(self, mock_get_formatter, mock_get_client,
-                                     mock_service_class, mock_pricing_class, sample_instance_type):
+    def test_cmd_cost_estimate_spot(self, mock_get_client, mock_get_instance,
+                                     mock_pricing_class, mock_fetch_pricing, sample_instance_type):
         """Test cost estimate with spot pricing"""
+        from src.models.instance_type import PricingInfo
+
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = [sample_instance_type]
-        mock_service_class.return_value = mock_service
+        mock_get_instance.return_value = sample_instance_type
 
         mock_pricing = Mock()
-        mock_pricing.get_on_demand_price.return_value = 0.0104
-        mock_pricing.get_spot_price.return_value = 0.0031
         mock_pricing_class.return_value = mock_pricing
+
+        def set_pricing(pricing_service, instance_type, region):
+            return PricingInfo(on_demand_price=0.0104, spot_price=0.0031)
+        mock_fetch_pricing.side_effect = set_pricing
 
         args = Mock()
         args.instance_type = "t3.micro"
@@ -756,19 +781,13 @@ class TestCmdCostEstimate:
 
         assert result == 0
 
-    @patch('src.cli.commands.pricing_commands.PricingService')
-    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_instance_by_name')
     @patch('src.cli.commands.pricing_commands.get_aws_client')
-    @patch('src.cli.commands.pricing_commands.get_formatter')
-    def test_cmd_cost_estimate_instance_not_found(self, mock_get_formatter, mock_get_client,
-                                                   mock_service_class, mock_pricing_class):
+    def test_cmd_cost_estimate_instance_not_found(self, mock_get_client, mock_get_instance):
         """Test cost estimate with instance not found"""
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = []
-        mock_service_class.return_value = mock_service
+        mock_get_instance.return_value = None  # Instance not found
 
         args = Mock()
         args.instance_type = "invalid.type"
@@ -782,23 +801,25 @@ class TestCmdCostEstimate:
 
         assert result == 1
 
+    @patch('src.cli.commands.pricing_commands.fetch_instance_pricing')
     @patch('src.cli.commands.pricing_commands.PricingService')
-    @patch('src.cli.commands.pricing_commands.InstanceService')
+    @patch('src.cli.commands.pricing_commands.get_instance_by_name')
     @patch('src.cli.commands.pricing_commands.get_aws_client')
-    def test_cmd_cost_estimate_pricing_unavailable(self, mock_get_client, mock_service_class,
-                                                    mock_pricing_class, sample_instance_type):
+    def test_cmd_cost_estimate_pricing_unavailable(self, mock_get_client, mock_get_instance,
+                                                    mock_pricing_class, mock_fetch_pricing, sample_instance_type):
         """Test cost estimate when pricing is unavailable"""
+        from src.models.instance_type import PricingInfo
+
         mock_client = Mock()
         mock_get_client.return_value = mock_client
-
-        mock_service = Mock()
-        mock_service.get_instance_types.return_value = [sample_instance_type]
-        mock_service_class.return_value = mock_service
+        mock_get_instance.return_value = sample_instance_type
 
         mock_pricing = Mock()
-        mock_pricing.get_on_demand_price.return_value = None
-        mock_pricing.get_spot_price.return_value = None
         mock_pricing_class.return_value = mock_pricing
+
+        def set_pricing(pricing_service, instance_type, region):
+            return PricingInfo(on_demand_price=None, spot_price=None)
+        mock_fetch_pricing.side_effect = set_pricing
 
         args = Mock()
         args.instance_type = "t3.micro"
