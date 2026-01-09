@@ -63,7 +63,8 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - **Instance generation indicator** (e.g., "6th gen" for m6i instances)
   - Storage options (EBS, instance store)
   - Architecture support
-  - **Comprehensive pricing**: On-demand, spot, and savings plans (1-year, 3-year)
+  - **Comprehensive pricing**: On-demand, spot, savings plans (1-year, 3-year), and Reserved Instances (Standard, 1-year, 3-year)
+  - **Reserved Instance pricing**: All payment options (No Upfront, Partial Upfront, All Upfront) with effective hourly rates
   - Cost analysis with monthly/annual estimates and savings percentages
 - 🆓 **Free Tier Indicators**: Clearly marked free tier eligible instances
 - ⚡ **Fast Navigation**: Smooth screen transitions with loading indicators
@@ -73,7 +74,7 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 - 🔧 **Scriptable**: Perfect for automation, CI/CD pipelines, and scripting
 - 📊 **Multiple Output Formats**: Table (human-readable), JSON (machine-readable), CSV (spreadsheet-friendly)
 - 🔍 **Powerful Filtering**: Search, filter by family, processor family (Intel/AMD/Graviton), network performance tier, price range, storage type, NVMe support, free tier, and more
-- 💰 **Pricing Queries**: Get pricing information for specific instances (on-demand and spot prices)
+- 💰 **Pricing Queries**: Get comprehensive pricing information for specific instances (on-demand, spot, savings plans, Reserved Instances)
 - 📈 **Comparison**: Compare two instance types side-by-side with detailed metrics
 - 💵 **Cost Calculator**: Estimate costs with different usage patterns and pricing models
 - 🌍 **Multi-Region Comparison**: Compare pricing across multiple regions
@@ -243,6 +244,22 @@ Monthly (730 hrs): $7.59
 Annual: $91.10
 Spot: $0.0036/hr
 Spot Savings: 65.4%
+1-Year Savings Plan: $0.0070/hr
+1-Year Savings: 32.7%
+3-Year Savings Plan: $0.0050/hr
+3-Year Savings: 51.9%
+
+Reserved Instances (Standard, 1-Year):
+  No Upfront: $0.0070/hr (32.7% savings)
+  Partial Upfront: $0.0060/hr (42.3% savings) *
+  All Upfront: N/A
+
+Reserved Instances (Standard, 3-Year):
+  No Upfront: $0.0050/hr (51.9% savings)
+  Partial Upfront: $0.0040/hr (61.5% savings) *
+  All Upfront: N/A
+
+* Effective hourly rate (includes prorated upfront payment)
 ```
 
 #### Spot Price History
