@@ -130,27 +130,34 @@ class RegionComparisonModal(ModalScreen):
                     logger.debug(f"Fetching {self.instance_type} data for {region}")
 
                     # Create AWS client for this region
-                    client = AsyncAWSClient(region=region, profile=self.profile)
-                    pricing_service = AsyncPricingService(client)
+                    async with AsyncAWSClient(region=region, profile=self.profile) as client:
+                        # Get EC2 client and fetch instance details
+                        async with client.get_ec2_client() as ec2_client:
+                            response = await ec2_client.describe_instance_types(
+                                InstanceTypes=[self.instance_type]
+                            )
 
-                    # Fetch instance details
-                    instance = await client.get_instance_by_name(
-                        self.instance_type,
-                        region
-                    )
+                            instance_data = response.get("InstanceTypes", [])
 
-                    if instance:
-                        # Fetch pricing
-                        await pricing_service.fetch_instance_pricing(
-                            instance,
-                            region,
-                            include_spot=True,
-                            include_ri=False  # Skip RI for comparison simplicity
-                        )
-                        self.region_data[region] = instance
-                    else:
-                        logger.debug(f"Instance {self.instance_type} not available in {region}")
-                        self.region_data[region] = None
+                            if instance_data:
+                                # Parse instance from AWS response
+                                instance = InstanceType.from_aws_response(instance_data[0])
+
+                                # Fetch pricing
+                                pricing_service = AsyncPricingService(client)
+                                on_demand = await pricing_service.get_on_demand_price(instance.instance_type, region)
+                                spot_price = await pricing_service.get_spot_price(instance.instance_type, region)
+
+                                # Create pricing info
+                                instance.pricing = PricingInfo(
+                                    on_demand_price=on_demand,
+                                    spot_price=spot_price
+                                )
+
+                                self.region_data[region] = instance
+                            else:
+                                logger.debug(f"Instance {self.instance_type} not available in {region}")
+                                self.region_data[region] = None
 
                 except Exception as e:
                     logger.exception(f"Error fetching data for {region}: {e}")

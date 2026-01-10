@@ -160,64 +160,85 @@ class OptimizationModal(ModalScreen):
             loading = self.query_one("#loading", LoadingIndicator)
 
             # Create AWS client and pricing service
-            client = AsyncAWSClient(region=self.region, profile=self.profile)
-            pricing_service = AsyncPricingService(client)
+            async with AsyncAWSClient(region=self.region, profile=self.profile) as client:
+                pricing_service = AsyncPricingService(client)
 
-            # Fetch instance details with pricing
-            logger.debug(f"Fetching pricing for {self.instance_type} in {self.region}")
-            instance = await client.get_instance_by_name(
-                self.instance_type,
-                self.region
-            )
+                # Get EC2 client and fetch instance details
+                async with client.get_ec2_client() as ec2_client:
+                    logger.debug(f"Fetching {self.instance_type} from {self.region}")
 
-            if not instance:
-                loading.remove()
-                content.mount(Static(
-                    f"❌ Instance type '{self.instance_type}' not found in {self.region}",
-                    id="no-recommendations"
-                ))
-                return
-
-            # Fetch pricing including RI options
-            await pricing_service.fetch_instance_pricing(
-                instance,
-                self.region,
-                include_spot=True,
-                include_ri=True
-            )
-
-            # Fetch all instances for comparison
-            logger.debug(f"Fetching all instances in {self.region} for comparison")
-            all_instances = await client.get_instance_types(self.region)
-
-            # Fetch pricing for alternatives (limited to reduce API calls)
-            logger.debug(f"Fetching pricing for {len(all_instances)} alternatives")
-            for alt_instance in all_instances:
-                if alt_instance.instance_type != self.instance_type:
-                    await pricing_service.fetch_instance_pricing(
-                        alt_instance,
-                        self.region,
-                        include_spot=False,  # Only need on-demand for comparison
-                        include_ri=False
+                    response = await ec2_client.describe_instance_types(
+                        InstanceTypes=[self.instance_type]
                     )
 
-            # Create optimization service and analyze
-            logger.debug(f"Analyzing {self.instance_type} with usage pattern: {self.usage_pattern}")
-            optimizer = OptimizationService(all_instances, self.region)
-            self.report = optimizer.analyze_instance(instance, self.usage_pattern)
+                    instance_data = response.get("InstanceTypes", [])
 
-            # Remove loading indicator
-            loading.remove()
+                    if not instance_data:
+                        loading.remove()
+                        content.mount(Static(
+                            f"❌ Instance type '{self.instance_type}' not found in {self.region}",
+                            id="no-recommendations"
+                        ))
+                        return
 
-            # Display recommendations
-            if not self.report.recommendations:
-                content.mount(Static(
-                    "✅ No significant optimization opportunities found.\n"
-                    "This instance is already well-optimized for your usage pattern.",
-                    id="no-recommendations"
-                ))
-            else:
-                self._display_recommendations(content)
+                    # Parse instance from AWS response
+                    instance = InstanceType.from_aws_response(instance_data[0])
+
+                    # Fetch pricing for current instance including savings plans and spot
+                    on_demand = await pricing_service.get_on_demand_price(instance.instance_type, self.region)
+                    spot_price = await pricing_service.get_spot_price(instance.instance_type, self.region)
+                    savings_1yr = await pricing_service.get_savings_plan_price(instance.instance_type, self.region, "1yr")
+                    savings_3yr = await pricing_service.get_savings_plan_price(instance.instance_type, self.region, "3yr")
+
+                    # Create pricing info with all pricing types
+                    instance.pricing = PricingInfo(
+                        on_demand_price=on_demand,
+                        spot_price=spot_price,
+                        savings_plan_1yr_no_upfront=savings_1yr,
+                        savings_plan_3yr_no_upfront=savings_3yr
+                    )
+
+                    # Fetch all instances for comparison
+                    logger.debug(f"Fetching all instances in {self.region} for comparison")
+                    all_instances_response = await ec2_client.describe_instance_types()
+                    all_instances = [
+                        InstanceType.from_aws_response(inst_data)
+                        for inst_data in all_instances_response.get("InstanceTypes", [])
+                    ]
+
+                    # Fetch on-demand pricing for all alternative instances in batch
+                    logger.debug(f"Fetching on-demand pricing for {len(all_instances)} alternatives")
+                    instance_type_names = [inst.instance_type for inst in all_instances if inst.instance_type != self.instance_type]
+                    pricing_results = await pricing_service.get_on_demand_prices_batch(
+                        instance_type_names,
+                        self.region,
+                        concurrency=20  # Higher concurrency for faster fetching
+                    )
+
+                    # Apply pricing to instances
+                    for inst in all_instances:
+                        if inst.instance_type in pricing_results:
+                            price = pricing_results[inst.instance_type]
+                            if price is not None:
+                                inst.pricing = PricingInfo(on_demand_price=price)
+
+                    # Create optimization service and analyze
+                    logger.debug(f"Analyzing {self.instance_type} with usage pattern: {self.usage_pattern}")
+                    optimizer = OptimizationService(all_instances, self.region)
+                    self.report = optimizer.analyze_instance(instance, self.usage_pattern)
+
+                    # Remove loading indicator
+                    loading.remove()
+
+                    # Display recommendations
+                    if not self.report.recommendations:
+                        content.mount(Static(
+                            "✅ No significant optimization opportunities found.\n"
+                            "This instance is already well-optimized for your usage pattern.",
+                            id="no-recommendations"
+                        ))
+                    else:
+                        self._display_recommendations(content)
 
         except Exception as e:
             logger.exception(f"Error fetching optimization recommendations: {e}")

@@ -5,7 +5,7 @@ import logging
 
 from textual.app import ComposeResult
 from textual.screen import ModalScreen
-from textual.containers import Container, VerticalScroll, Horizontal
+from textual.containers import Container, ScrollableContainer, Horizontal
 from textual.widgets import Static, Button, Checkbox, LoadingIndicator
 
 from src.services.async_aws_client import AsyncAWSClient
@@ -43,8 +43,8 @@ class RegionSelectorModal(ModalScreen):
     }
 
     RegionSelectorModal #content-container {
-        height: 60;
-        overflow-y: auto;
+        height: 100%;
+        max-height: 70;
     }
 
     RegionSelectorModal #loading {
@@ -83,6 +83,10 @@ class RegionSelectorModal(ModalScreen):
         ("escape", "cancel", "Cancel"),
         ("q", "cancel", "Cancel"),
         ("enter", "compare", "Compare"),
+        ("j", "scroll_down", "Scroll Down"),
+        ("k", "scroll_up", "Scroll Up"),
+        ("down", "scroll_down", "Scroll Down"),
+        ("up", "scroll_up", "Scroll Up"),
     ]
 
     def __init__(
@@ -118,7 +122,7 @@ class RegionSelectorModal(ModalScreen):
                 id="subtitle"
             )
 
-            with VerticalScroll(id="content-container"):
+            with ScrollableContainer(id="content-container"):
                 yield LoadingIndicator(id="loading")
 
             with Horizontal(id="button-container"):
@@ -126,7 +130,7 @@ class RegionSelectorModal(ModalScreen):
                 yield Button("Cancel", variant="default", id="cancel-button")
 
             yield Static(
-                "Space: Toggle | Enter: Compare | Esc: Cancel",
+                "↑↓: Scroll | Space: Toggle | Enter: Compare | Esc: Cancel",
                 id="help-text"
             )
 
@@ -138,7 +142,7 @@ class RegionSelectorModal(ModalScreen):
         """Fetch list of available AWS regions"""
         try:
             # Get content container
-            content = self.query_one("#content-container", VerticalScroll)
+            content = self.query_one("#content-container", ScrollableContainer)
             loading = self.query_one("#loading", LoadingIndicator)
 
             # Fetch regions
@@ -244,3 +248,19 @@ class RegionSelectorModal(ModalScreen):
     def action_compare(self) -> None:
         """Handle Enter key to compare"""
         self._handle_compare()
+
+    def action_scroll_down(self) -> None:
+        """Scroll the content container down"""
+        try:
+            content = self.query_one("#content-container", ScrollableContainer)
+            content.scroll_relative(y=2, animate=False)
+        except:
+            pass
+
+    def action_scroll_up(self) -> None:
+        """Scroll the content container up"""
+        try:
+            content = self.query_one("#content-container", ScrollableContainer)
+            content.scroll_relative(y=-2, animate=False)
+        except:
+            pass
