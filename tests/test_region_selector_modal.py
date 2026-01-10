@@ -196,7 +196,7 @@ class TestRegionSelectorModal:
                 try:
                     error = app.screen.query_one("#error-message")
                     assert "error" in error.renderable.lower() or "unable" in error.renderable.lower()
-                except:
+                except Exception:
                     # It's okay if the widget ID is different
                     pass
 

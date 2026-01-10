@@ -146,8 +146,8 @@ class RegionSelectorModal(ModalScreen):
             # Fetch regions
             logger.debug("Fetching available AWS regions")
             # Use current region for client initialization (any region works for listing regions)
-            client = AsyncAWSClient(region=self.current_region, profile=self.profile)
-            self.regions = await client.get_accessible_regions()
+            async with AsyncAWSClient(region=self.current_region, profile=self.profile) as client:
+                self.regions = await client.get_accessible_regions()
 
             # Remove loading indicator
             loading.remove()
@@ -220,8 +220,9 @@ class RegionSelectorModal(ModalScreen):
             try:
                 error = self.query_one("#error-message", Static)
                 error.update("⚠️  Please select at least 2 regions to compare")
-            except:
+            except Exception as e:
                 # Error message widget doesn't exist, create it
+                logger.debug(f"Error widget not found during UI update: {e}")
                 container = self.query_one("#button-container", Horizontal)
                 container.mount_after(
                     Static(

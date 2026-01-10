@@ -116,7 +116,7 @@ class TestRegionComparisonModal:
                 try:
                     no_data = app.screen.query_one("#no-data")
                     assert "not available" in no_data.renderable.lower()
-                except:
+                except Exception:
                     # It's okay if the widget ID is different
                     pass
 

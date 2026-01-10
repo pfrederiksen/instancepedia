@@ -4,12 +4,15 @@ import asyncio
 import json
 import logging
 import time
+import statistics
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Callable
 from decimal import Decimal
 from botocore.exceptions import ClientError, BotoCoreError
 
 from src.services.async_aws_client import AsyncAWSClient
+from src.services.pricing_service import SpotPriceHistory
 from src.debug import DebugLog
 from src.cache import get_pricing_cache
 from src.config.settings import Settings
@@ -350,6 +353,79 @@ class AsyncPricingService:
             # Cache the None result
             if self.cache:
                 self.cache.set(region, instance_type, 'spot', None)
+            return None
+
+    async def get_spot_price_history(
+        self,
+        instance_type: str,
+        region: str,
+        days: int = 30
+    ) -> Optional[SpotPriceHistory]:
+        """
+        Get historical spot prices for an instance type with statistics
+
+        Args:
+            instance_type: EC2 instance type (e.g., "t3.micro")
+            region: AWS region code
+            days: Number of days of history to fetch (default: 30)
+
+        Returns:
+            SpotPriceHistory object with statistics, or None if unavailable
+        """
+        try:
+            # Calculate start time
+            start_time = datetime.utcnow() - timedelta(days=days)
+
+            # Fetch historical spot prices
+            async with self.aws_client.get_ec2_client() as ec2:
+                response = await ec2.describe_spot_price_history(
+                    InstanceTypes=[instance_type],
+                    ProductDescriptions=['Linux/UNIX'],
+                    StartTime=start_time
+                )
+
+            if not response.get('SpotPriceHistory'):
+                return None
+
+            # Parse price history
+            price_points = []
+            for entry in response['SpotPriceHistory']:
+                timestamp = entry['Timestamp']
+                price = float(entry['SpotPrice'])
+                price_points.append((timestamp, price))
+
+            # Sort by timestamp (oldest first)
+            price_points.sort(key=lambda x: x[0])
+
+            if not price_points:
+                return None
+
+            # Extract prices for statistics
+            prices = [price for _, price in price_points]
+
+            # Calculate statistics
+            current_price = prices[-1] if prices else None
+            min_price = min(prices) if prices else None
+            max_price = max(prices) if prices else None
+            avg_price = statistics.mean(prices) if prices else None
+            median_price = statistics.median(prices) if prices else None
+            std_dev = statistics.stdev(prices) if len(prices) > 1 else None
+
+            return SpotPriceHistory(
+                instance_type=instance_type,
+                region=region,
+                days=days,
+                current_price=current_price,
+                min_price=min_price,
+                max_price=max_price,
+                avg_price=avg_price,
+                median_price=median_price,
+                std_dev=std_dev,
+                price_points=price_points
+            )
+
+        except (ClientError, BotoCoreError, Exception) as e:
+            logger.debug(f"Error fetching spot price history for {instance_type}: {e}")
             return None
 
     async def get_savings_plan_price(

@@ -106,7 +106,7 @@ class TestOptimizationModal:
                 try:
                     no_recs = app.screen.query_one("#no-recommendations")
                     assert "not found" in no_recs.renderable.lower()
-                except:
+                except Exception:
                     # It's okay if the widget ID is different, as long as no crash
                     pass
 
@@ -124,6 +124,7 @@ class TestOptimizationModal:
         # Create empty report (no recommendations)
         empty_report = OptimizationReport(
             instance_type="t3.large",
+            region="us-east-1",
             current_pricing=instance.pricing,
             recommendations=[],
             total_potential_savings=0.0
@@ -165,7 +166,7 @@ class TestOptimizationModal:
                         try:
                             no_recs = app.screen.query_one("#no-recommendations")
                             assert "no" in no_recs.renderable.lower() or "optimized" in no_recs.renderable.lower()
-                        except:
+                        except Exception:
                             # It's okay if not found - modal may have different implementation
                             pass
 
