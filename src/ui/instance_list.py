@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 from src.models.instance_type import InstanceType
 from src.services.free_tier_service import FreeTierService
 from src.debug import DebugLog, DebugPane
+from src.config.settings import Settings
 from textual.containers import Vertical
 from src.ui.region_selector import RegionSelector
 from src.ui.filter_modal import FilterModal, FilterCriteria
@@ -138,6 +139,9 @@ class InstanceList(Screen):
         self._cache_hits = 0  # Track actual cache hits during pricing fetch
         self._total_prices = 0  # Track total prices loaded
         self._marked_for_comparison: List[InstanceType] = []  # Track instances marked for comparison
+        self._settings = Settings()  # Load settings for vim_keys and other options
+        self._family_instances: Dict[str, List[InstanceType]] = {}  # Lazy loading: instances per family
+        self._populated_families: set = set()  # Track which families have had their instances added
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -300,21 +304,23 @@ class InstanceList(Screen):
         # Sort categories and families
         sorted_categories = sorted(categories.keys())
         
-        # Build tree structure: Root -> Categories -> Families -> Instances
+        # Build tree structure: Root -> Categories -> Families -> Instances (lazy loaded)
         root = tree.root
-        
+
         # Store instance type mapping for navigation
         self._instance_type_map.clear()
         self._family_nodes.clear()
+        self._family_instances.clear()  # Clear lazy loading cache
+        self._populated_families.clear()  # Reset populated families
         # Don't clear expanded state - we want to preserve it across rebuilds
-        
+
         for category in sorted_categories:
             category_families = categories[category]
             sorted_families = sorted(category_families.keys())
-            
+
             # Count instances in this category
             category_count = sum(len(instances) for instances in category_families.values())
-            
+
             # Create category node (branch)
             # Use category name without count for state tracking, but display with count
             category_label = f"{category} ({category_count} instances)"
@@ -324,32 +330,36 @@ class InstanceList(Screen):
                 category_label,
                 expand=category_expanded  # Restore previous state or default to collapsed
             )
-            
+
             for family in sorted_families:
                 instances = category_families[family]
-                
+
                 # Create family node (branch) with count
                 # Use family name without count for state tracking, but display with count
                 family_label = f"{family} ({len(instances)} instances)"
                 # Restore expanded state using family name only (without count)
                 family_expanded = (
-                    (family in self._expanded_families or category_expanded) if preserve_state 
+                    (family in self._expanded_families or category_expanded) if preserve_state
                     else category_expanded  # If category is expanded, expand families too
                 )
                 family_node = category_node.add(
                     family_label,
-                    expand=family_expanded  # Expanded if category is expanded or was previously expanded
+                    expand=family_expanded,  # Expanded if category is expanded or was previously expanded
+                    allow_expand=True  # Allow expansion even without children (for lazy loading)
                 )
                 # Store family node reference to ensure it's expanded when category expands
                 self._family_nodes.append(family_node)
-                
-                # Add instance nodes (leaves)
+
+                # Store instances for lazy loading (keyed by family name)
+                self._family_instances[family] = instances
+
+                # Store in instance map for navigation (always needed)
                 for instance in instances:
-                    label = self._format_instance_label(instance)
-                    # Store instance type as node data for easy retrieval
-                    instance_node = family_node.add_leaf(label, data=instance.instance_type)
-                    # Also store in mapping for navigation
                     self._instance_type_map[instance.instance_type] = instance
+
+                # If family should be expanded, populate it immediately
+                if family_expanded:
+                    self._populate_family_instances(family_node, family)
         
         # Expand root node by default
         try:
@@ -360,6 +370,28 @@ class InstanceList(Screen):
 
         # Update status bar
         self._update_status_bar()
+
+    def _populate_family_instances(self, family_node: 'TreeNode', family_name: str) -> None:
+        """Lazy-load instance nodes for a family when expanded.
+
+        This method is called when a family node is expanded for the first time.
+        It adds instance leaf nodes to the family node.
+        """
+        # Skip if already populated
+        if family_name in self._populated_families:
+            return
+
+        # Get instances for this family
+        instances = self._family_instances.get(family_name, [])
+
+        # Add instance nodes (leaves)
+        for instance in instances:
+            label = self._format_instance_label(instance)
+            # Store instance type as node data for easy retrieval
+            family_node.add_leaf(label, data=instance.instance_type)
+
+        # Mark as populated
+        self._populated_families.add(family_name)
 
     def _update_status_bar(self) -> None:
         """Update the status bar with current filter, sort, and pricing information"""
@@ -574,7 +606,7 @@ class InstanceList(Screen):
                 self._navigate_to_detail(instance)
     
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
-        """Handle tree node expansion - track expanded state and expand family nodes when category expands"""
+        """Handle tree node expansion - track expanded state, lazy-load instances, and expand family nodes"""
         node = event.node
         # Track expanded state
         if node.data is None:  # Branch node (category or family)
@@ -589,9 +621,11 @@ class InstanceList(Screen):
                     for family_node in self._family_nodes:
                         try:
                             if hasattr(family_node, 'parent') and family_node.parent == node:
-                                family_node.expand()
                                 family_label = str(family_node.label)
                                 family_name = self._extract_family_name(family_label)
+                                # Lazy-load instances for this family
+                                self._populate_family_instances(family_node, family_name)
+                                family_node.expand()
                                 self._expanded_families.add(family_name)
                         except Exception:
                             pass
@@ -599,6 +633,8 @@ class InstanceList(Screen):
                     # This is a family node - extract family name (without count)
                     family_name = self._extract_family_name(node_label)
                     self._expanded_families.add(family_name)
+                    # Lazy-load instances for this family
+                    self._populate_family_instances(node, family_name)
             except Exception:
                 pass  # Ignore errors
     
@@ -637,9 +673,53 @@ class InstanceList(Screen):
         return label
 
     def on_key(self, event: events.Key) -> None:
-        """Handle key presses"""
+        """Handle key presses including vim-style navigation (hjkl)"""
+        tree = self.query_one("#instance-tree", Tree)
+
+        # Vim-style navigation: j=down, k=up, l=expand/enter, h=collapse/back
+        # Only active when vim_keys is enabled in settings
+        if self._settings.vim_keys:
+            if event.key == "j":
+                # Move cursor down
+                event.prevent_default()
+                event.stop()
+                tree.action_cursor_down()
+                return
+            elif event.key == "k":
+                # Move cursor up
+                event.prevent_default()
+                event.stop()
+                tree.action_cursor_up()
+                return
+            elif event.key == "h":
+                # Collapse current node or go to parent
+                event.prevent_default()
+                event.stop()
+                cursor_node = tree.cursor_node
+                if cursor_node is not None:
+                    if cursor_node.is_expanded:
+                        cursor_node.collapse()
+                    elif cursor_node.parent is not None:
+                        tree.select_node(cursor_node.parent)
+                return
+            elif event.key == "l":
+                # Expand node or enter (same as enter for leaf nodes)
+                event.prevent_default()
+                event.stop()
+                cursor_node = tree.cursor_node
+                if cursor_node is not None:
+                    if cursor_node.data is not None:
+                        # Leaf node - navigate to detail
+                        instance_type_name = cursor_node.data
+                        if instance_type_name in self._instance_type_map:
+                            instance = self._instance_type_map[instance_type_name]
+                            self._navigate_to_detail(instance)
+                    elif not cursor_node.is_expanded:
+                        cursor_node.expand()
+                return
+
+        # Standard enter key handling
         if event.key == "enter":
-            tree = self.query_one("#instance-tree", Tree)
             cursor_node = tree.cursor_node
             if cursor_node is not None:
                 # Check if this is a leaf node (instance) or branch node (category/family)

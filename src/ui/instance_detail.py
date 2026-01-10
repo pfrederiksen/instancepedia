@@ -228,6 +228,13 @@ class InstanceDetail(Screen):
                     lines.append("  • Current Spot Price:     Loading...")
                 else:
                     lines.append("  • Current Spot Price:     Not available")
+                    # Provide helpful suggestions when spot is unavailable
+                    is_metal = inst.instance_type and ".metal" in inst.instance_type
+                    is_mac = inst.instance_type and inst.instance_type.startswith("mac")
+                    if is_metal or is_mac:
+                        lines.append("    (Spot not supported for this instance type)")
+                    else:
+                        lines.append("    (Try a different region or use Savings Plans)")
 
                 # Spot price history (7-day trends)
                 if inst.pricing and inst.pricing.spot_price:

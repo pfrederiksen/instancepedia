@@ -300,6 +300,12 @@ The CLI now validates region names before making AWS API calls and suggests simi
 **Symptoms:**
 - On-demand pricing works
 - Spot pricing shows "N/A" or "Loading..."
+- `instancepedia spot-history` returns no data
+
+**Instance types that DO NOT support spot:**
+- **Metal instances** (e.g., `m5.metal`, `c5.metal`) - dedicated hardware
+- **Mac instances** (e.g., `mac1.metal`, `mac2-m2pro.metal`) - dedicated hardware
+- **Some older generation instances** - limited spot availability
 
 **Solutions:**
 
@@ -310,16 +316,28 @@ The CLI now validates region names before making AWS API calls and suggests simi
    - Spot prices fetch in background when viewing instance details
    - Takes a few seconds per instance
 
-3. **Some instance types don't support spot**:
-   - Check if the instance type actually supports spot instances
-   - Not all instance types are available as spot
+3. **Try a different region**:
+   - Not all instance types have spot capacity in all regions
+   - Use `instancepedia compare-regions --include-spot` to find regions with spot
+   ```bash
+   instancepedia compare-regions t3.micro --include-spot
+   ```
 
-4. **Verify with AWS CLI**:
+4. **Use alternative savings options**:
+   - Savings Plans: 1-year or 3-year commitment for up to 72% savings
+   - Reserved Instances: Standard or Convertible with various payment options
+   - Check with `instancepedia show <instance-type> --include-pricing`
+
+5. **Verify with AWS CLI**:
    ```bash
    aws ec2 describe-spot-price-history \
      --instance-types t3.micro \
      --max-results 1
    ```
+
+6. **Check AWS Console**:
+   - EC2 Console → Spot Requests → Pricing History
+   - Verify the instance type is available as spot in your region
 
 ### Problem: Pricing data seems stale or incorrect
 
