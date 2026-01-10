@@ -130,7 +130,7 @@ class RegionComparisonModal(ModalScreen):
                     logger.debug(f"Fetching {self.instance_type} data for {region}")
 
                     # Create AWS client for this region
-                    client = AsyncAWSClient(profile_name=self.profile)
+                    client = AsyncAWSClient(region=region, profile=self.profile)
                     pricing_service = AsyncPricingService(client)
 
                     # Fetch instance details

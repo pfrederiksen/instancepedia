@@ -160,7 +160,7 @@ class OptimizationModal(ModalScreen):
             loading = self.query_one("#loading", LoadingIndicator)
 
             # Create AWS client and pricing service
-            client = AsyncAWSClient(profile_name=self.profile)
+            client = AsyncAWSClient(region=self.region, profile=self.profile)
             pricing_service = AsyncPricingService(client)
 
             # Fetch instance details with pricing
