@@ -11,7 +11,7 @@ from textual.widgets import Static, LoadingIndicator
 from src.services.async_aws_client import AsyncAWSClient
 from src.services.async_pricing_service import AsyncPricingService
 from src.services.optimization_service import OptimizationService, OptimizationReport
-from src.models.instance_type import InstanceType
+from src.models.instance_type import InstanceType, PricingInfo
 
 logger = logging.getLogger("instancepedia")
 
@@ -130,7 +130,7 @@ class OptimizationModal(ModalScreen):
         """
         super().__init__()
         self.instance_type = instance_type
-        self.region = region
+        self._region = region  # Use _region to avoid conflict with Screen.region property
         self.usage_pattern = usage_pattern
         self.profile = profile
         self.report: Optional[OptimizationReport] = None
@@ -160,12 +160,12 @@ class OptimizationModal(ModalScreen):
             loading = self.query_one("#loading", LoadingIndicator)
 
             # Create AWS client and pricing service
-            async with AsyncAWSClient(region=self.region, profile=self.profile) as client:
+            async with AsyncAWSClient(region=self._region, profile=self.profile) as client:
                 pricing_service = AsyncPricingService(client)
 
                 # Get EC2 client and fetch instance details
                 async with client.get_ec2_client() as ec2_client:
-                    logger.debug(f"Fetching {self.instance_type} from {self.region}")
+                    logger.debug(f"Fetching {self.instance_type} from {self._region}")
 
                     response = await ec2_client.describe_instance_types(
                         InstanceTypes=[self.instance_type]
@@ -176,7 +176,7 @@ class OptimizationModal(ModalScreen):
                     if not instance_data:
                         loading.remove()
                         content.mount(Static(
-                            f"❌ Instance type '{self.instance_type}' not found in {self.region}",
+                            f"❌ Instance type '{self.instance_type}' not found in {self._region}",
                             id="no-recommendations"
                         ))
                         return
@@ -185,10 +185,10 @@ class OptimizationModal(ModalScreen):
                     instance = InstanceType.from_aws_response(instance_data[0])
 
                     # Fetch pricing for current instance including savings plans and spot
-                    on_demand = await pricing_service.get_on_demand_price(instance.instance_type, self.region)
-                    spot_price = await pricing_service.get_spot_price(instance.instance_type, self.region)
-                    savings_1yr = await pricing_service.get_savings_plan_price(instance.instance_type, self.region, "1yr")
-                    savings_3yr = await pricing_service.get_savings_plan_price(instance.instance_type, self.region, "3yr")
+                    on_demand = await pricing_service.get_on_demand_price(instance.instance_type, self._region)
+                    spot_price = await pricing_service.get_spot_price(instance.instance_type, self._region)
+                    savings_1yr = await pricing_service.get_savings_plan_price(instance.instance_type, self._region, "1yr")
+                    savings_3yr = await pricing_service.get_savings_plan_price(instance.instance_type, self._region, "3yr")
 
                     # Create pricing info with all pricing types
                     instance.pricing = PricingInfo(
@@ -199,7 +199,7 @@ class OptimizationModal(ModalScreen):
                     )
 
                     # Fetch all instances for comparison
-                    logger.debug(f"Fetching all instances in {self.region} for comparison")
+                    logger.debug(f"Fetching all instances in {self._region} for comparison")
                     all_instances_response = await ec2_client.describe_instance_types()
                     all_instances = [
                         InstanceType.from_aws_response(inst_data)
@@ -211,7 +211,7 @@ class OptimizationModal(ModalScreen):
                     instance_type_names = [inst.instance_type for inst in all_instances if inst.instance_type != self.instance_type]
                     pricing_results = await pricing_service.get_on_demand_prices_batch(
                         instance_type_names,
-                        self.region,
+                        self._region,
                         concurrency=20  # Higher concurrency for faster fetching
                     )
 
@@ -224,7 +224,7 @@ class OptimizationModal(ModalScreen):
 
                     # Create optimization service and analyze
                     logger.debug(f"Analyzing {self.instance_type} with usage pattern: {self.usage_pattern}")
-                    optimizer = OptimizationService(all_instances, self.region)
+                    optimizer = OptimizationService(all_instances, self._region)
                     self.report = optimizer.analyze_instance(instance, self.usage_pattern)
 
                     # Remove loading indicator

@@ -80,7 +80,7 @@ class PricingHistoryModal(ModalScreen):
         super().__init__()
         DebugLog.log(f"PricingHistoryModal.__init__() for {instance_type} in {region}")
         self.instance_type = instance_type
-        self.region = region
+        self._region = region
         self.days = days
         self.profile = profile
         self.history: Optional[SpotPriceHistory] = None
@@ -92,7 +92,7 @@ class PricingHistoryModal(ModalScreen):
         DebugLog.log("PricingHistoryModal.compose() called")
         with Container(id="history-container"):
             yield Static(
-                f"Spot Price History: {self.instance_type} ({self.region})",
+                f"Spot Price History: {self.instance_type} ({self._region})",
                 id="history-header"
             )
             with ScrollableContainer(id="history-content"):
@@ -116,7 +116,7 @@ class PricingHistoryModal(ModalScreen):
         DebugLog.log("PricingHistoryModal._fetch_history() started")
         try:
             async with AsyncAWSClient(
-                self.region,
+                self._region,
                 self.profile,
                 connect_timeout=self._settings.aws_connect_timeout,
                 read_timeout=self._settings.aws_read_timeout,
@@ -131,7 +131,7 @@ class PricingHistoryModal(ModalScreen):
                 # Fetch spot price history
                 self.history = await pricing_service.get_spot_price_history(
                     self.instance_type,
-                    self.region,
+                    self._region,
                     self.days
                 )
 
@@ -256,7 +256,7 @@ class PricingHistoryModal(ModalScreen):
     def _format_no_history(self) -> str:
         """Format message when no history is available"""
         lines = []
-        lines.append(f"No spot price history available for {self.instance_type} in {self.region}")
+        lines.append(f"No spot price history available for {self.instance_type} in {self._region}")
         lines.append("")
         lines.append("Possible reasons:")
         lines.append("  • No spot capacity in this region for this instance type")
