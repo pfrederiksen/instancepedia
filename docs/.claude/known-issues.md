@@ -172,6 +172,32 @@ async def get_price():
 2. AsyncExitStack cleanup for normal cases
 3. Global atexit handler for interpreter shutdown
 
+### Awaiting Async Context Managers
+
+**Issue:** `get_ec2_client()` and `get_pricing_client()` are `@asynccontextmanager` decorated methods that return async generators, not clients directly.
+
+**Bad:**
+```python
+async def fetch_instances():
+    async with AsyncAWSClient(region) as client:
+        ec2_client = await client.get_ec2_client()  # ❌ Can't await context manager
+        response = await ec2_client.describe_instance_types(...)
+```
+
+**Error Message:** `"'_AsyncGeneratorContextManager' object can't be awaited"`
+
+**Good:**
+```python
+async def fetch_instances():
+    async with AsyncAWSClient(region) as client:
+        async with client.get_ec2_client() as ec2_client:  # ✅ Use async with
+            response = await ec2_client.describe_instance_types(...)
+```
+
+**Why:** `get_ec2_client()` is decorated with `@asynccontextmanager` and uses `yield` to provide the client. You must use `async with` to properly enter/exit the context manager.
+
+**Solution:** Always use `async with client.get_ec2_client() as ec2:` and `async with client.get_pricing_client() as pricing:`. See `implementation-details.md` for detailed examples.
+
 ### Cache Statistics Timing
 
 **Issue:** Cache hit statistics reported incorrectly when counted after pricing fetch completes.

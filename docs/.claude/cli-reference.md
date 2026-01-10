@@ -22,6 +22,7 @@ The CLI provides the following commands for users:
 - `cache stats` - Show cache statistics
 - `cache clear` - Clear cache entries
 - `spot-history` - Show historical spot price trends with statistics and volatility analysis
+- `optimize` - Get cost optimization recommendations for an instance type
 
 ## CLI Module Architecture
 
@@ -32,7 +33,7 @@ src/cli/commands/
 ├── __init__.py           # Package init, exports all commands
 ├── base.py               # Common utilities (validation, instance fetching, file I/O)
 ├── instance_commands.py  # cmd_list, cmd_show, cmd_search, cmd_compare, cmd_compare_family, cmd_regions
-├── pricing_commands.py   # cmd_pricing, cmd_cost_estimate, cmd_compare_regions, cmd_spot_history
+├── pricing_commands.py   # cmd_pricing, cmd_cost_estimate, cmd_compare_regions, cmd_spot_history, cmd_optimize
 ├── cache_commands.py     # cmd_cache_stats, cmd_cache_clear
 └── preset_commands.py    # cmd_presets_list, cmd_presets_apply, cmd_presets_save, cmd_presets_delete
 ```
@@ -286,6 +287,45 @@ The spot price history feature (`spot-history` command) provides historical anal
 **TUI Integration** (`src/ui/instance_detail.py`):
 - Reference message in instance detail pricing section
 - Directs users to CLI command for full analysis
+
+## Cost Optimization Recommendations
+
+The cost optimization feature (`optimize` command) provides intelligent cost-saving recommendations:
+
+**Implementation** (`src/services/optimization_service.py`):
+- `OptimizationService` class analyzes instance costs and alternatives
+- `OptimizationReport` dataclass stores recommendations with savings calculations
+- `OptimizationRecommendation` dataclass represents each recommendation with details
+
+**Recommendation Types**:
+- **Spot Instances**: For fault-tolerant workloads (standard/burst usage patterns)
+- **Right-Sizing**: Cheaper alternatives with similar/better specs
+- **Savings Plans**: 1-year and 3-year compute savings plans
+- **Reserved Instances**: 1-year and 3-year RIs (no upfront, partial, all upfront)
+
+**Usage Pattern Support**:
+- `standard`: Mixed workload (considers all recommendations)
+- `burst`: Variable usage (spot + savings plans, not RIs)
+- `continuous`: 24/7 workload (emphasizes RIs and savings plans)
+
+**Analysis Features**:
+- Compares current instance against all available alternatives
+- Right-sizing requires 80%+ memory and vCPU-2 minimum
+- Spot savings must exceed 30% to recommend
+- Prefers current generation instances
+- Includes considerations (interruptions, commitments, etc.)
+
+**CLI Integration** (`src/cli/commands/pricing_commands.py`):
+- `cmd_optimize()` handler with table and JSON output formats
+- `--usage-pattern` argument (default: standard)
+- Shows total potential savings summary
+- Lists recommendations sorted by savings amount
+
+**TUI Integration** (`src/ui/optimization_modal.py`, `src/ui/instance_detail.py`):
+- Press `O` key in instance detail screen to open optimization modal
+- Displays recommendations with emoji indicators
+- Shows current vs optimized costs
+- Batch pricing fetch for fast loading (20x concurrency)
 
 ## Reserved Instance Pricing
 

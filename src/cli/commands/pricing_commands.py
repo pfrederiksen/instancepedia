@@ -1,5 +1,7 @@
 """Pricing-related CLI commands"""
 
+import logging
+
 from src.services.instance_service import InstanceService
 from src.services.pricing_service import PricingService
 from src.cli.output import get_formatter
@@ -8,6 +10,8 @@ from .base import (
     status, print_error, get_aws_client, fetch_instance_pricing, write_output,
     get_instance_by_name
 )
+
+logger = logging.getLogger("instancepedia")
 
 
 def cmd_pricing(args) -> int:
@@ -326,5 +330,166 @@ def _format_spot_history_table(history) -> str:
             lines.append(f"  {ts.strftime('%Y-%m-%d %H:%M')}  ${price:.4f}  {bar}")
         else:
             lines.append(f"  {ts.strftime('%Y-%m-%d %H:%M')}  ${price:.4f}")
+
+    return "\n".join(lines)
+
+
+def cmd_optimize(args) -> int:
+    """Cost optimization recommendations command"""
+    from src.services.optimization_service import OptimizationService
+    from src.services.instance_service import InstanceService
+
+    aws_client = get_aws_client(args.region, args.profile)
+
+    try:
+        # Get the target instance
+        instance = get_instance_by_name(aws_client, args.instance_type, args.region, args.quiet)
+        if not instance:
+            print_error(f"Instance type '{args.instance_type}' not found in region {args.region}")
+            return 1
+
+        # Fetch pricing for the instance
+        status("Fetching pricing information...", args.quiet)
+        pricing_service = PricingService(aws_client)
+        instance.pricing = fetch_instance_pricing(
+            pricing_service, instance.instance_type, args.region, include_ri=True
+        )
+
+        if not instance.pricing or not instance.pricing.on_demand_price:
+            print_error(f"No pricing data available for {args.instance_type}")
+            return 1
+
+        # Get all instances for comparison
+        status("Fetching all instance types for comparison...", args.quiet)
+        instance_service = InstanceService(aws_client)
+        all_instances = instance_service.get_instance_types(fetch_pricing=False)
+
+        # Fetch pricing for potential alternatives
+        status("Analyzing alternatives...", args.quiet)
+        for inst in all_instances:
+            if inst.instance_type != args.instance_type:
+                try:
+                    inst.pricing = fetch_instance_pricing(
+                        pricing_service, inst.instance_type, args.region, include_ri=False
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to fetch pricing for {inst.instance_type}: {e}")
+                    continue
+
+        # Create optimization service and analyze
+        status("Generating recommendations...", args.quiet)
+        optimization_service = OptimizationService(all_instances, args.region)
+        report = optimization_service.analyze_instance(
+            instance,
+            usage_pattern=args.usage_pattern
+        )
+
+        # Format output
+        if args.format == "json":
+            import json
+            output = json.dumps({
+                "instance_type": report.instance_type,
+                "region": report.region,
+                "current_monthly_cost": report.current_pricing.on_demand_price * 730 if report.current_pricing else None,
+                "total_potential_savings": report.total_potential_savings,
+                "recommendations": [
+                    {
+                        "type": rec.recommendation_type,
+                        "current_instance": rec.current_instance,
+                        "recommended_instance": rec.recommended_instance,
+                        "current_cost_monthly": rec.current_cost_monthly,
+                        "optimized_cost_monthly": rec.optimized_cost_monthly,
+                        "savings_monthly": rec.savings_monthly,
+                        "savings_percentage": rec.savings_percentage,
+                        "reason": rec.reason,
+                        "considerations": rec.considerations
+                    }
+                    for rec in report.recommendations
+                ]
+            }, indent=2)
+        else:
+            output = _format_optimization_report(report)
+
+        write_output(output, args.output, args.quiet)
+        return 0
+
+    except Exception as e:
+        print_error(str(e), debug=args.debug, exception=e)
+        return 1
+
+
+def _format_optimization_report(report) -> str:
+    """Format optimization report as table output"""
+    lines = []
+    lines.append(f"Cost Optimization Recommendations for {report.instance_type} in {report.region}")
+    lines.append("")
+
+    if report.current_pricing and report.current_pricing.on_demand_price:
+        current_monthly = report.current_pricing.on_demand_price * 730
+        lines.append(f"Current Cost: ${current_monthly:.2f}/month (on-demand)")
+    else:
+        lines.append("Current Cost: N/A")
+
+    lines.append("")
+
+    if not report.recommendations:
+        lines.append("No optimization recommendations available.")
+        lines.append("")
+        lines.append("Possible reasons:")
+        lines.append("  • Instance already optimally priced")
+        lines.append("  • No cheaper alternatives with similar specs")
+        lines.append("  • Spot pricing not available")
+        return "\n".join(lines)
+
+    lines.append("Recommendations (sorted by savings):")
+    lines.append("═" * 80)
+    lines.append("")
+
+    for i, rec in enumerate(report.recommendations, 1):
+        # Recommendation header
+        if rec.recommendation_type == "spot":
+            header = f"{i}. Use Spot Instances [High Savings ⚡]"
+        elif rec.recommendation_type == "downsize":
+            header = f"{i}. Downsize to {rec.recommended_instance} [Right-sizing 📉]"
+        elif rec.recommendation_type.startswith("savings_plan"):
+            term = "1-year" if "1yr" in rec.recommendation_type else "3-year"
+            header = f"{i}. {term} Savings Plan [Medium Commitment 💰]"
+        elif rec.recommendation_type.startswith("ri"):
+            term = "1-year" if "1yr" in rec.recommendation_type else "3-year"
+            payment = "Partial Upfront" if "partial" in rec.recommendation_type else "No Upfront"
+            header = f"{i}. {term} Reserved Instance ({payment}) [High Commitment 🔒]"
+        else:
+            header = f"{i}. {rec.recommendation_type}"
+
+        lines.append(header)
+
+        # Cost comparison
+        if rec.recommended_instance:
+            lines.append(f"   Current:     {rec.current_instance} - ${rec.current_cost_monthly:.2f}/month")
+            lines.append(f"   Recommended: {rec.recommended_instance} - ${rec.optimized_cost_monthly:.2f}/month")
+        else:
+            lines.append(f"   Current:     ${rec.current_cost_monthly:.2f}/month (on-demand)")
+            lines.append(f"   Optimized:   ${rec.optimized_cost_monthly:.2f}/month")
+
+        # Savings
+        lines.append(f"   Savings:     ${rec.savings_monthly:.2f}/month ({rec.savings_percentage:.1f}%)")
+        lines.append("")
+
+        # Reason
+        lines.append(f"   Reason: {rec.reason}")
+
+        # Considerations
+        if rec.considerations:
+            lines.append("   Considerations:")
+            for consideration in rec.considerations:
+                lines.append(f"   • {consideration}")
+
+        lines.append("")
+
+    # Total savings
+    if report.total_potential_savings > 0:
+        lines.append("═" * 80)
+        lines.append(f"Total Potential Savings: ${report.total_potential_savings:.2f}/month")
+        lines.append("(if combining compatible strategies)")
 
     return "\n".join(lines)
