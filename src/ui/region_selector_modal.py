@@ -43,8 +43,8 @@ class RegionSelectorModal(ModalScreen):
     }
 
     RegionSelectorModal #content-container {
-        height: 100%;
-        max-height: 70;
+        height: auto;
+        max-height: 60;
     }
 
     RegionSelectorModal #loading {
@@ -83,10 +83,8 @@ class RegionSelectorModal(ModalScreen):
         ("escape", "cancel", "Cancel"),
         ("q", "cancel", "Cancel"),
         ("enter", "compare", "Compare"),
-        ("j", "scroll_down", "Scroll Down"),
-        ("k", "scroll_up", "Scroll Up"),
-        ("down", "scroll_down", "Scroll Down"),
-        ("up", "scroll_up", "Scroll Up"),
+        ("down", "focus_next", "Next"),
+        ("up", "focus_previous", "Previous"),
     ]
 
     def __init__(
@@ -130,7 +128,7 @@ class RegionSelectorModal(ModalScreen):
                 yield Button("Cancel", variant="default", id="cancel-button")
 
             yield Static(
-                "↑↓: Scroll | Space: Toggle | Enter: Compare | Esc: Cancel",
+                "↑↓: Navigate | Space: Toggle | Enter: Select/Compare | Esc: Cancel",
                 id="help-text"
             )
 
@@ -249,18 +247,10 @@ class RegionSelectorModal(ModalScreen):
         """Handle Enter key to compare"""
         self._handle_compare()
 
-    def action_scroll_down(self) -> None:
-        """Scroll the content container down"""
-        try:
-            content = self.query_one("#content-container", ScrollableContainer)
-            content.scroll_relative(y=2, animate=False)
-        except:
-            pass
+    def action_focus_next(self) -> None:
+        """Move focus to next widget"""
+        self.screen.focus_next()
 
-    def action_scroll_up(self) -> None:
-        """Scroll the content container up"""
-        try:
-            content = self.query_one("#content-container", ScrollableContainer)
-            content.scroll_relative(y=-2, animate=False)
-        except:
-            pass
+    def action_focus_previous(self) -> None:
+        """Move focus to previous widget"""
+        self.screen.focus_previous()

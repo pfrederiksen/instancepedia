@@ -157,6 +157,31 @@ async with AsyncAWSClient(
 - Global `_active_clients: weakref.WeakSet` tracks all client instances for cleanup
 - `atexit.register(_cleanup_all_aiohttp_resources)` ensures cleanup at interpreter exit
 
+**CRITICAL: Using EC2/Pricing Clients Correctly**:
+
+```python
+# ❌ WRONG - get_ec2_client() returns async context manager, not client
+ec2_client = await client.get_ec2_client()  # ERROR: Can't await context manager
+response = await ec2_client.describe_instance_types(...)
+
+# ✅ CORRECT - Use async with to get the client
+async with client.get_ec2_client() as ec2_client:
+    response = await ec2_client.describe_instance_types(...)
+    # Client is valid within this block
+
+# ✅ CORRECT - Multiple API calls with same client
+async with client.get_ec2_client() as ec2_client:
+    response1 = await ec2_client.describe_instance_types(InstanceTypes=[type1])
+    response2 = await ec2_client.describe_regions()
+    # Reuses same client for both calls
+```
+
+**Why this pattern?**:
+- `get_ec2_client()` is decorated with `@asynccontextmanager` and uses `yield`
+- Must use `async with` to properly enter/exit the context
+- The context manager handles client initialization, caching, and error recovery
+- Attempting to `await` the context manager directly causes: `"'_AsyncGeneratorContextManager' object can't be awaited"`
+
 ### Cleanup on Cancellation
 
 - When workers are cancelled (e.g., user quits TUI during pricing fetch), `__aexit__` is called
