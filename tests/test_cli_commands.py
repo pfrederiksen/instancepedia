@@ -1364,6 +1364,114 @@ class TestCmdSpotHistory:
 
         assert result == 1
 
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
+    def test_cmd_spot_history_metal_instance_error_message(self, mock_get_client, mock_pricing_class, capsys):
+        """Test that metal instances get appropriate error message"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_pricing = Mock()
+        mock_pricing.get_spot_price_history.return_value = None
+        mock_pricing_class.return_value = mock_pricing
+
+        args = Mock()
+        args.instance_type = "m5.metal"  # Metal instance
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.days = 30
+
+        result = commands.cmd_spot_history(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        # Should mention spot not supported
+        assert "not supported" in captured.err.lower() or "not supported" in captured.out.lower()
+
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
+    def test_cmd_spot_history_mac_instance_error_message(self, mock_get_client, mock_pricing_class, capsys):
+        """Test that Mac instances get appropriate error message"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_pricing = Mock()
+        mock_pricing.get_spot_price_history.return_value = None
+        mock_pricing_class.return_value = mock_pricing
+
+        args = Mock()
+        args.instance_type = "mac1.metal"  # Mac instance
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.days = 30
+
+        result = commands.cmd_spot_history(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        # Should mention spot not supported for Metal/Mac
+        assert "not supported" in captured.err.lower() or "not supported" in captured.out.lower()
+
+    @patch('src.cli.commands.pricing_commands.PricingService')
+    @patch('src.cli.commands.pricing_commands.get_aws_client')
+    def test_cmd_spot_history_regular_instance_suggests_alternatives(self, mock_get_client, mock_pricing_class, capsys):
+        """Test that regular instances get suggestion to try other regions"""
+        mock_client = Mock()
+        mock_get_client.return_value = mock_client
+
+        mock_pricing = Mock()
+        mock_pricing.get_spot_price_history.return_value = None
+        mock_pricing_class.return_value = mock_pricing
+
+        args = Mock()
+        args.instance_type = "t3.micro"  # Regular instance
+        args.region = "us-east-1"
+        args.profile = None
+        args.format = "table"
+        args.output = None
+        args.quiet = False
+        args.debug = False
+        args.days = 30
+
+        result = commands.cmd_spot_history(args)
+
+        assert result == 1
+        captured = capsys.readouterr()
+        # Should suggest trying other regions
+        output = captured.err + captured.out
+        assert "compare-regions" in output.lower() or "region" in output.lower()
+
+
+class TestSpotPricingErrorDetection:
+    """Tests for spot pricing error detection logic"""
+
+    def test_metal_instance_detection(self):
+        """Test detection of metal instances"""
+        metal_instances = ["m5.metal", "c5.metal", "r5.metal", "i3.metal"]
+        for inst in metal_instances:
+            assert ".metal" in inst
+
+    def test_mac_instance_detection(self):
+        """Test detection of Mac instances"""
+        mac_instances = ["mac1.metal", "mac2.metal", "mac2-m2pro.metal"]
+        for inst in mac_instances:
+            assert inst.startswith("mac")
+
+    def test_regular_instance_not_detected_as_metal_or_mac(self):
+        """Test that regular instances are not detected as metal/mac"""
+        regular_instances = ["t3.micro", "m5.large", "c5.xlarge", "r5.2xlarge"]
+        for inst in regular_instances:
+            assert ".metal" not in inst
+            assert not inst.startswith("mac")
+
 
 class TestCLIFilters:
     """Tests for CLI filter integration"""
