@@ -145,7 +145,7 @@ class RegionSelectorModal(ModalScreen):
             logger.debug("Fetching available AWS regions")
             # Use current region for client initialization (any region works for listing regions)
             client = AsyncAWSClient(region=self.current_region, profile=self.profile)
-            self.regions = await client.get_regions()
+            self.regions = await client.get_accessible_regions()
 
             # Remove loading indicator
             loading.remove()

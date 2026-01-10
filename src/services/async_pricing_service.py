@@ -687,7 +687,7 @@ class AsyncPricingService:
             If return_metrics=True, returns tuple (results, PricingMetrics)
         """
         metrics = PricingMetrics()
-        logger.info(f"Starting batch pricing fetch: {len(instance_types)} instances, concurrency={concurrency}, delay={self.settings.pricing_request_delay_ms}ms")
+        logger.debug(f"Starting batch pricing fetch: {len(instance_types)} instances, concurrency={concurrency}, delay={self.settings.pricing_request_delay_ms}ms")
 
         semaphore = asyncio.Semaphore(concurrency)
         results = {}
@@ -740,9 +740,9 @@ class AsyncPricingService:
 
         # Finalize metrics
         metrics.finish()
-        logger.info(metrics.summary())
+        logger.debug(metrics.summary())
         if metrics.elapsed_time > 0:
-            logger.info(f"Throughput: {metrics.requests_per_second:.1f} requests/second")
+            logger.debug(f"Throughput: {metrics.requests_per_second:.1f} requests/second")
 
         if return_metrics:
             return results, metrics
