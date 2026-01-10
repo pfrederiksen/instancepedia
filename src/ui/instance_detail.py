@@ -15,6 +15,7 @@ from src.services.ebs_recommendation_service import EbsRecommendationService
 from src.services.pricing_service import PricingService
 from src.services.aws_client import AWSClient
 from src.debug import DebugLog, DebugPane
+from src.ui.pricing_history_modal import PricingHistoryModal
 
 
 class InstanceDetail(Screen):
@@ -23,6 +24,7 @@ class InstanceDetail(Screen):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("escape", "back", "Back"),
+        ("p", "show_pricing_history", "Price History"),
     ]
 
     def __init__(self, instance_type: InstanceType):
@@ -42,7 +44,7 @@ class InstanceDetail(Screen):
                 with ScrollableContainer(id="detail-content"):
                     yield Static("Loading...", id="detail-text")  # Show something immediately
                 yield Static(
-                    "Esc: Back | Q: Quit",
+                    "P: Price History | Esc: Back | Q: Quit",
                     id="help-text"
                 )
             if DebugLog.is_enabled():
@@ -515,6 +517,22 @@ class InstanceDetail(Screen):
                                 http_session._closed = True
                 except Exception:
                     pass  # Best effort cleanup
+
+    def action_show_pricing_history(self) -> None:
+        """Show spot price history modal"""
+        # Get region from app
+        region = getattr(self.app, 'current_region', 'us-east-1')
+        profile = getattr(self.app, 'settings', None)
+        profile = profile.aws_profile if profile else None
+
+        # Open pricing history modal
+        modal = PricingHistoryModal(
+            instance_type=self.instance_type.instance_type,
+            region=region,
+            days=30,
+            profile=profile
+        )
+        self.app.push_screen(modal)
 
     def action_back(self) -> None:
         """Go back to instance list"""
