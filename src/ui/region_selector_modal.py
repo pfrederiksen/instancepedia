@@ -23,8 +23,7 @@ class RegionSelectorModal(ModalScreen):
 
     RegionSelectorModal > Container {
         width: 70;
-        height: auto;
-        max-height: 90%;
+        height: 80;
         background: $surface;
         border: thick $primary;
         padding: 1 2;
@@ -44,8 +43,8 @@ class RegionSelectorModal(ModalScreen):
     }
 
     RegionSelectorModal #content-container {
-        height: auto;
-        max-height: 60;
+        height: 60;
+        overflow-y: auto;
     }
 
     RegionSelectorModal #loading {
@@ -83,6 +82,7 @@ class RegionSelectorModal(ModalScreen):
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
         ("q", "cancel", "Cancel"),
+        ("enter", "compare", "Compare"),
     ]
 
     def __init__(
@@ -240,3 +240,7 @@ class RegionSelectorModal(ModalScreen):
     def action_cancel(self) -> None:
         """Close the modal without comparing"""
         self.dismiss()
+
+    def action_compare(self) -> None:
+        """Handle Enter key to compare"""
+        self._handle_compare()
