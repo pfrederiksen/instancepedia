@@ -31,6 +31,8 @@ from .cache_commands import (
 from .preset_commands import (
     cmd_presets_list,
     cmd_presets_apply,
+    cmd_presets_save,
+    cmd_presets_delete,
 )
 from .base import (
     status,
@@ -75,6 +77,8 @@ __all__ = [
     # Preset commands
     'cmd_presets_list',
     'cmd_presets_apply',
+    'cmd_presets_save',
+    'cmd_presets_delete',
     # Base utilities
     'status',
     'progress',

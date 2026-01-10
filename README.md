@@ -80,7 +80,11 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 - 💵 **Cost Calculator**: Estimate costs with different usage patterns and pricing models
 - 🌍 **Multi-Region Comparison**: Compare pricing across multiple regions
 - 👨‍👩‍👧‍👦 **Family Comparison**: Compare all instances within a family (e.g., all t3.* instances)
-- 🎯 **Filter Presets**: Built-in presets for common use cases (web-server, database, gpu-ml, etc.)
+- 🎯 **Filter Presets**: Built-in and custom presets for common use cases
+  - Built-in presets: web-server, database, compute-intensive, gpu-ml, arm-graviton, burstable, free-tier, small-dev
+  - Create custom presets with `presets save` command
+  - Delete custom presets with `presets delete` command
+  - Presets persist across sessions in `~/.instancepedia/presets/`
 - 💾 **EBS Recommendations**: Volume type recommendations based on instance EBS capabilities
 - 📁 **File Output**: Save results to files for further processing
 - ⚡ **Fast**: No UI overhead, optimized for batch operations
@@ -517,6 +521,14 @@ instancepedia presets list
 instancepedia presets apply web-server --region us-east-1 --include-pricing
 instancepedia presets apply database --region us-east-1 --format json
 
+# Create custom filter presets
+instancepedia presets save my-preset --description "My custom filter" --min-vcpu 4 --architecture arm64
+instancepedia presets save high-memory --min-memory 64 --current-generation --force
+
+# Delete custom presets
+instancepedia presets delete my-preset
+instancepedia presets delete my-preset --force  # Skip confirmation
+
 # Analyze spot price history and trends
 instancepedia spot-history t3.micro --region us-east-1 --days 30
 instancepedia spot-history m5.large --region us-east-1 --days 7 --format json
@@ -549,6 +561,10 @@ instancepedia spot-history m5.large --region us-east-1 --days 7 --format json
 - `Tab` / `Shift+Tab` - Navigate between filter inputs
 - `Enter` - Apply filters (when "Apply Filters" button is focused)
 - `Esc` - Cancel and close modal
+- **Preset Support:**
+  - Load Preset: Select a built-in or custom preset from dropdown
+  - Save Preset: Save current filters as a custom preset
+  - Custom presets are marked with * in the dropdown
 - **Filter Options:**
   - vCPU Count: Min/max range filter
   - Memory (GB): Min/max range filter

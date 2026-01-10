@@ -278,6 +278,69 @@ Filter presets allow users to quickly apply common filtering scenarios. Built-in
 
 Presets are defined in `src/services/filter_preset_service.py` and stored in `~/.instancepedia/presets/filter_presets.json` for custom presets.
 
+**Custom Preset Persistence:**
+
+Users can create, save, and delete custom filter presets via both CLI and TUI:
+
+**CLI Commands:**
+```bash
+# Save a custom preset
+instancepedia presets save my-preset --description "Description" --min-vcpu 4 --architecture arm64
+
+# Delete a custom preset
+instancepedia presets delete my-preset --force
+```
+
+**TUI Integration:**
+- Filter modal includes a "Load Preset" dropdown at the top
+- "Save Preset" button saves current filter values as a new preset
+- Custom presets are marked with `*` in the dropdown
+- `SavePresetModal` handles name/description input with validation
+
+**Implementation Details** (`src/services/filter_preset_service.py`):
+- `FilterPreset` dataclass with all filter fields (aligned with `FilterCriteria`)
+- `FilterPreset.to_filter_criteria()` - Convert preset to TUI FilterCriteria
+- `FilterPreset.from_filter_criteria()` - Create preset from current filters
+- `FilterPresetService.save_custom_preset()` - Persist to JSON file
+- `FilterPresetService.delete_custom_preset()` - Remove from JSON file
+- `FilterPresetService.is_builtin_preset()` - Protect built-in presets from deletion
+
+**FilterPreset Fields** (extended to match FilterCriteria):
+```python
+@dataclass
+class FilterPreset:
+    name: str
+    description: Optional[str] = None
+    min_vcpu: Optional[int] = None
+    max_vcpu: Optional[int] = None
+    min_memory: Optional[float] = None
+    max_memory: Optional[float] = None
+    has_gpu: Optional[bool] = None
+    current_generation_only: bool = False
+    burstable_only: bool = False
+    free_tier_only: bool = False
+    architecture: Optional[str] = None
+    instance_families: Optional[List[str]] = None
+    processor_family: Optional[str] = None
+    network_performance: Optional[str] = None
+    storage_type: Optional[str] = None
+    nvme_support: Optional[str] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+```
+
+**Storage Format** (`~/.instancepedia/presets/filter_presets.json`):
+```json
+{
+  "my-preset": {
+    "name": "my-preset",
+    "description": "My custom filter",
+    "min_vcpu": 4,
+    "architecture": "arm64"
+  }
+}
+```
+
 ### Storage Filters
 
 Storage-focused filtering allows users to find instances based on storage characteristics:

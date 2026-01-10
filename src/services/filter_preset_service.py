@@ -22,17 +22,135 @@ class FilterPreset:
     free_tier_only: bool = False
     architecture: Optional[str] = None  # "x86_64" or "arm64"
     instance_families: Optional[List[str]] = None  # e.g., ["t3", "t4g"]
+    # Extended filter fields (aligned with FilterCriteria)
+    processor_family: Optional[str] = None  # "intel", "amd", "graviton"
+    network_performance: Optional[str] = None  # "low", "moderate", "high", "very_high"
+    storage_type: Optional[str] = None  # "ebs_only", "has_instance_store"
+    nvme_support: Optional[str] = None  # "required", "supported", "unsupported"
+    min_price: Optional[float] = None  # minimum hourly price
+    max_price: Optional[float] = None  # maximum hourly price
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization"""
         data = asdict(self)
-        # Remove None values to keep JSON clean
-        return {k: v for k, v in data.items() if v is not None}
+        # Remove None values and False booleans to keep JSON clean
+        return {k: v for k, v in data.items() if v is not None and v is not False}
 
     @classmethod
     def from_dict(cls, data: Dict) -> "FilterPreset":
         """Create from dictionary"""
-        return cls(**data)
+        # Filter out unknown fields for forward compatibility
+        valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered_data)
+
+    def to_filter_criteria(self) -> "FilterCriteria":
+        """Convert preset to FilterCriteria for TUI/CLI use
+
+        Returns:
+            FilterCriteria object with values from this preset
+        """
+        # Import here to avoid circular imports
+        from src.ui.filter_modal import FilterCriteria
+
+        criteria = FilterCriteria()
+
+        # Map simple fields
+        criteria.min_vcpu = self.min_vcpu
+        criteria.max_vcpu = self.max_vcpu
+        criteria.min_memory_gb = self.min_memory
+        criteria.max_memory_gb = self.max_memory
+        criteria.min_price = self.min_price
+        criteria.max_price = self.max_price
+
+        # Map boolean to "any/yes/no" format
+        if self.has_gpu is not None:
+            criteria.gpu_filter = "yes" if self.has_gpu else "no"
+        if self.current_generation_only:
+            criteria.current_generation = "yes"
+        if self.burstable_only:
+            criteria.burstable = "yes"
+        if self.free_tier_only:
+            criteria.free_tier = "yes"
+
+        # Map architecture
+        if self.architecture:
+            criteria.architecture = self.architecture
+
+        # Map instance families (list to comma-separated string)
+        if self.instance_families:
+            criteria.family_filter = ", ".join(self.instance_families)
+
+        # Map extended fields
+        if self.processor_family:
+            criteria.processor_family = self.processor_family
+        if self.network_performance:
+            criteria.network_performance = self.network_performance
+        if self.storage_type:
+            criteria.storage_type = self.storage_type
+        if self.nvme_support:
+            criteria.nvme_support = self.nvme_support
+
+        return criteria
+
+    @classmethod
+    def from_filter_criteria(
+        cls,
+        criteria: "FilterCriteria",
+        name: str,
+        description: Optional[str] = None
+    ) -> "FilterPreset":
+        """Create preset from FilterCriteria
+
+        Args:
+            criteria: FilterCriteria object to convert
+            name: Name for the preset
+            description: Optional description
+
+        Returns:
+            FilterPreset object
+        """
+        preset = cls(name=name, description=description)
+
+        # Map simple fields
+        preset.min_vcpu = criteria.min_vcpu
+        preset.max_vcpu = criteria.max_vcpu
+        preset.min_memory = criteria.min_memory_gb
+        preset.max_memory = criteria.max_memory_gb
+        preset.min_price = criteria.min_price
+        preset.max_price = criteria.max_price
+
+        # Map "any/yes/no" to boolean
+        if criteria.gpu_filter == "yes":
+            preset.has_gpu = True
+        elif criteria.gpu_filter == "no":
+            preset.has_gpu = False
+
+        preset.current_generation_only = criteria.current_generation == "yes"
+        preset.burstable_only = criteria.burstable == "yes"
+        preset.free_tier_only = criteria.free_tier == "yes"
+
+        # Map architecture
+        if criteria.architecture and criteria.architecture != "any":
+            preset.architecture = criteria.architecture
+
+        # Map family filter (comma-separated string to list)
+        if criteria.family_filter and criteria.family_filter.strip():
+            families = [f.strip() for f in criteria.family_filter.split(",") if f.strip()]
+            if families:
+                preset.instance_families = families
+
+        # Map extended fields (only if not "any")
+        if criteria.processor_family and criteria.processor_family != "any":
+            preset.processor_family = criteria.processor_family
+        if criteria.network_performance and criteria.network_performance != "any":
+            preset.network_performance = criteria.network_performance
+        if criteria.storage_type and criteria.storage_type != "any":
+            preset.storage_type = criteria.storage_type
+        if criteria.nvme_support and criteria.nvme_support != "any":
+            preset.nvme_support = criteria.nvme_support
+
+        return preset
 
 
 class FilterPresetService:
@@ -215,3 +333,26 @@ class FilterPresetService:
         """List names of all presets"""
         all_presets = self.get_all_presets()
         return sorted(all_presets.keys())
+
+    def is_builtin_preset(self, name: str) -> bool:
+        """Check if a preset name is a built-in preset
+
+        Args:
+            name: Preset name to check
+
+        Returns:
+            True if built-in, False otherwise
+        """
+        return name in self.builtin_presets
+
+    def is_custom_preset(self, name: str) -> bool:
+        """Check if a preset name is a custom preset
+
+        Args:
+            name: Preset name to check
+
+        Returns:
+            True if custom, False otherwise
+        """
+        custom_presets = self.load_custom_presets()
+        return name in custom_presets

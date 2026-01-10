@@ -413,6 +413,164 @@ Examples:
     )
     presets_apply_parser.set_defaults(func=commands.cmd_presets_apply)
 
+    # Presets save subcommand
+    presets_save_parser = presets_subparsers.add_parser("save", help="Save a custom filter preset")
+    presets_save_parser.add_argument(
+        "preset_name",
+        type=str,
+        help="Name for the preset"
+    )
+    presets_save_parser.add_argument(
+        "--description",
+        type=str,
+        default=None,
+        help="Description of the preset"
+    )
+    presets_save_parser.add_argument(
+        "--min-vcpu",
+        type=int,
+        default=None,
+        help="Minimum vCPU count"
+    )
+    presets_save_parser.add_argument(
+        "--max-vcpu",
+        type=int,
+        default=None,
+        help="Maximum vCPU count"
+    )
+    presets_save_parser.add_argument(
+        "--min-memory",
+        type=float,
+        default=None,
+        help="Minimum memory in GB"
+    )
+    presets_save_parser.add_argument(
+        "--max-memory",
+        type=float,
+        default=None,
+        help="Maximum memory in GB"
+    )
+    presets_save_parser.add_argument(
+        "--has-gpu",
+        action="store_true",
+        default=None,
+        help="Require GPU"
+    )
+    presets_save_parser.add_argument(
+        "--no-gpu",
+        dest="has_gpu",
+        action="store_false",
+        help="Exclude GPU instances"
+    )
+    presets_save_parser.add_argument(
+        "--current-generation",
+        action="store_true",
+        default=False,
+        help="Current generation only"
+    )
+    presets_save_parser.add_argument(
+        "--burstable",
+        action="store_true",
+        default=False,
+        help="Burstable instances only"
+    )
+    presets_save_parser.add_argument(
+        "--free-tier",
+        action="store_true",
+        default=False,
+        help="Free tier eligible only"
+    )
+    presets_save_parser.add_argument(
+        "--architecture",
+        type=str,
+        choices=["x86_64", "arm64"],
+        default=None,
+        help="Architecture filter"
+    )
+    presets_save_parser.add_argument(
+        "--instance-families",
+        type=str,
+        default=None,
+        help="Comma-separated instance families (e.g., t3,m5,c6i)"
+    )
+    presets_save_parser.add_argument(
+        "--processor-family",
+        type=str,
+        choices=["intel", "amd", "graviton"],
+        default=None,
+        help="Processor family filter"
+    )
+    presets_save_parser.add_argument(
+        "--network-performance",
+        type=str,
+        choices=["low", "moderate", "high", "very_high"],
+        default=None,
+        help="Network performance tier"
+    )
+    presets_save_parser.add_argument(
+        "--storage-type",
+        type=str,
+        choices=["ebs_only", "has_instance_store"],
+        default=None,
+        help="Storage type filter"
+    )
+    presets_save_parser.add_argument(
+        "--nvme-support",
+        type=str,
+        choices=["required", "supported", "unsupported"],
+        default=None,
+        help="NVMe support filter"
+    )
+    presets_save_parser.add_argument(
+        "--min-price",
+        type=float,
+        default=None,
+        help="Minimum hourly price in USD"
+    )
+    presets_save_parser.add_argument(
+        "--max-price",
+        type=float,
+        default=None,
+        help="Maximum hourly price in USD"
+    )
+    presets_save_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing preset without confirmation"
+    )
+    presets_save_parser.add_argument(
+        "--format",
+        type=str,
+        choices=["table", "json"],
+        default="table",
+        help="Output format (default: table)"
+    )
+    presets_save_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress output messages"
+    )
+    presets_save_parser.set_defaults(func=commands.cmd_presets_save)
+
+    # Presets delete subcommand
+    presets_delete_parser = presets_subparsers.add_parser("delete", help="Delete a custom filter preset")
+    presets_delete_parser.add_argument(
+        "preset_name",
+        type=str,
+        help="Name of the preset to delete"
+    )
+    presets_delete_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt"
+    )
+    presets_delete_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress output messages"
+    )
+    presets_delete_parser.set_defaults(func=commands.cmd_presets_delete)
+
     # Spot history command
     spot_history_parser = subparsers.add_parser("spot-history", help="Show spot price history and trends")
     add_common_args(spot_history_parser)
