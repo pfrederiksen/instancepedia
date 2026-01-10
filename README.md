@@ -66,6 +66,22 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
   - **Comprehensive pricing**: On-demand, spot, savings plans (1-year, 3-year), and Reserved Instances (Standard, 1-year, 3-year)
   - **Reserved Instance pricing**: All payment options (No Upfront, Partial Upfront, All Upfront) with effective hourly rates
   - Cost analysis with monthly/annual estimates and savings percentages
+- 📈 **Spot Price History Modal**: Interactive visualization of spot price trends
+  - 30-day price history with statistics (min, max, avg, median, std dev)
+  - Volatility analysis with stability ratings
+  - Text-based price trend chart
+  - Potential savings calculations
+- 💡 **Cost Optimization Modal**: Intelligent cost-saving recommendations
+  - Spot instance analysis for fault-tolerant workloads
+  - Right-sizing suggestions with similar or better specs
+  - Savings Plans (1-year and 3-year) options
+  - Reserved Instances with multiple payment options
+  - Detailed considerations and savings breakdowns
+- 🌍 **Multi-Region Comparison Modal**: Compare pricing across AWS regions
+  - Select multiple regions to compare side-by-side
+  - Shows on-demand, spot, and savings plan pricing
+  - Highlights cheapest region automatically
+  - Price variance analysis and savings calculations
 - 🆓 **Free Tier Indicators**: Clearly marked free tier eligible instances
 - ⚡ **Fast Navigation**: Smooth screen transitions with loading indicators
 - ⌨️ **Vim-Style Navigation**: Optional hjkl keybindings for power users (enable with `vim_keys = true` in config)
@@ -91,6 +107,7 @@ A Terminal User Interface (TUI) and Command-Line Interface (CLI) application for
 - 🔇 **Quiet Mode**: Suppress progress messages for clean script output
 - 💾 **Cache Management**: View cache statistics and clear cached pricing data
 - 📈 **Spot Price History**: Analyze historical spot price trends with statistics and volatility indicators
+- 💡 **Cost Optimization**: Get intelligent recommendations for reducing AWS costs (spot, right-sizing, savings plans, RIs)
 
 ## Installation
 
@@ -383,6 +400,75 @@ The spot price history feature provides:
 - **Data Points**: Number of price changes recorded during the period
 - **Free API**: Uses AWS EC2 `describe-spot-price-history` API (no CloudWatch charges)
 
+#### Cost Optimization Recommendations
+
+```bash
+# Get cost optimization recommendations for an instance
+instancepedia optimize t3.large --region us-east-1
+
+# Specify usage pattern (standard, burst, continuous)
+instancepedia optimize t3.large --region us-east-1 --usage-pattern continuous
+instancepedia optimize m5.xlarge --region us-east-1 --usage-pattern burst
+
+# Output as JSON for analysis
+instancepedia optimize t3.large --region us-east-1 --format json
+```
+
+**Example Output (table format):**
+```
+Cost Optimization Recommendations for t3.large in us-east-1
+
+Current Cost: $60.74/month (on-demand)
+
+Recommendations:
+
+1. ⚡ Spot Instances
+   Current Cost:    $60.74/month
+   Optimized Cost:  $18.25/month
+   Savings:         $42.49/month (70.0% savings)
+
+   Reason: Spot price is significantly lower (70.0% savings)
+
+   Considerations:
+   • May be interrupted with 2-minute warning
+   • Best for fault-tolerant, flexible workloads
+   • Not suitable for critical or stateful applications
+   • Actual availability varies by AZ and time
+
+2. 📋 3-Year Savings Plan
+   Current Cost:    $60.74/month
+   Optimized Cost:  $39.42/month
+   Savings:         $21.32/month (35.1% savings)
+
+   Reason: Significant discount with 3-year commitment
+
+   Considerations:
+   • Requires 3-year commitment
+   • No upfront payment option
+   • Provides flexibility across instance families
+   • Discount applies automatically to usage
+
+3. 📉 Right-Sizing: t3.medium
+   Current Cost:    $60.74/month
+   Optimized Cost:  $30.37/month
+   Savings:         $30.37/month (50.0% savings)
+
+   Reason: Similar capabilities at 50.0% lower cost
+
+   Considerations:
+   • 2 fewer vCPU (2 vs 4)
+   • 4.0 GB less memory (4.0 vs 8.0 GB)
+   • Ensure workload doesn't require more than 2 vCPU and 4.0 GB RAM
+```
+
+The cost optimization feature provides:
+- **Intelligent Analysis**: Evaluates spot instances, right-sizing, savings plans, and Reserved Instances
+- **Usage Pattern Support**: Tailors recommendations based on workload type (standard/burst/continuous)
+- **Savings Calculations**: Shows monthly savings and percentage off current cost
+- **Detailed Considerations**: Lists important factors to consider for each recommendation
+- **Comprehensive Options**: Includes 1-year and 3-year commitment options
+- **Free API**: Uses AWS Pricing API and EC2 API (no charges)
+
 #### List Available Regions
 
 ```bash
@@ -588,6 +674,9 @@ instancepedia spot-history m5.large --region us-east-1 --days 7 --format json
 - Search and filters work across all categories and families
 
 #### Instance Detail
+- `P` - View spot price history (30-day trends, statistics, volatility analysis)
+- `O` - Get cost optimization recommendations (spot, right-sizing, savings plans, RIs)
+- `R` - Compare pricing across multiple regions
 - `Esc` - Back to list
 - `Q` - Quit
 
