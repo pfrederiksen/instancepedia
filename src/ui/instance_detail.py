@@ -17,6 +17,8 @@ from src.services.aws_client import AWSClient
 from src.debug import DebugLog, DebugPane
 from src.ui.pricing_history_modal import PricingHistoryModal
 from src.ui.optimization_modal import OptimizationModal
+from src.ui.region_selector_modal import RegionSelectorModal
+from src.ui.region_comparison_modal import RegionComparisonModal
 
 
 class InstanceDetail(Screen):
@@ -27,6 +29,7 @@ class InstanceDetail(Screen):
         ("escape", "back", "Back"),
         ("p", "show_pricing_history", "Price History"),
         ("o", "show_optimization", "Optimize"),
+        ("r", "show_region_comparison", "Compare Regions"),
     ]
 
     def __init__(self, instance_type: InstanceType):
@@ -46,7 +49,7 @@ class InstanceDetail(Screen):
                 with ScrollableContainer(id="detail-content"):
                     yield Static("Loading...", id="detail-text")  # Show something immediately
                 yield Static(
-                    "P: Price History | O: Optimize | Esc: Back | Q: Quit",
+                    "P: Price History | O: Optimize | R: Compare Regions | Esc: Back | Q: Quit",
                     id="help-text"
                 )
             if DebugLog.is_enabled():
@@ -551,6 +554,32 @@ class InstanceDetail(Screen):
             profile=profile
         )
         self.app.push_screen(modal)
+
+    def action_show_region_comparison(self) -> None:
+        """Show region comparison selector modal"""
+        # Get region from app
+        region = getattr(self.app, 'current_region', 'us-east-1')
+        profile = getattr(self.app, 'settings', None)
+        profile = profile.aws_profile if profile else None
+
+        # Define callback for when regions are selected
+        def on_compare(selected_regions):
+            """Open comparison modal with selected regions"""
+            comparison_modal = RegionComparisonModal(
+                instance_type=self.instance_type.instance_type,
+                regions=selected_regions,
+                profile=profile
+            )
+            self.app.push_screen(comparison_modal)
+
+        # Open region selector modal
+        selector_modal = RegionSelectorModal(
+            instance_type=self.instance_type.instance_type,
+            current_region=region,
+            profile=profile,
+            on_compare=on_compare
+        )
+        self.app.push_screen(selector_modal)
 
     def action_back(self) -> None:
         """Go back to instance list"""
