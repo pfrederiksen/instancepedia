@@ -23,6 +23,7 @@ from .pricing_commands import (
     cmd_cost_estimate,
     cmd_compare_regions,
     cmd_spot_history,
+    cmd_optimize,
 )
 from .cache_commands import (
     cmd_cache_stats,
@@ -71,6 +72,7 @@ __all__ = [
     'cmd_cost_estimate',
     'cmd_compare_regions',
     'cmd_spot_history',
+    'cmd_optimize',
     # Cache commands
     'cmd_cache_stats',
     'cmd_cache_clear',

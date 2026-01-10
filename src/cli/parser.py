@@ -587,6 +587,23 @@ Examples:
     )
     spot_history_parser.set_defaults(func=commands.cmd_spot_history)
 
+    # Optimize command
+    optimize_parser = subparsers.add_parser("optimize", help="Get cost optimization recommendations")
+    add_common_args(optimize_parser)
+    optimize_parser.add_argument(
+        "instance_type",
+        type=str,
+        help="Instance type to analyze (e.g., t3.large)"
+    )
+    optimize_parser.add_argument(
+        "--usage-pattern",
+        type=str,
+        choices=["standard", "burst", "continuous"],
+        default="standard",
+        help="Expected usage pattern (default: standard). standard=normal workloads, burst=flexible timing, continuous=24/7 critical"
+    )
+    optimize_parser.set_defaults(func=commands.cmd_optimize)
+
     # Cache command
     cache_parser = subparsers.add_parser("cache", help="Manage pricing cache")
     cache_subparsers = cache_parser.add_subparsers(dest="cache_command", help="Cache commands")
