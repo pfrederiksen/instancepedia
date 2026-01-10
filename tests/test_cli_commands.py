@@ -1075,6 +1075,16 @@ class TestCmdPresetsList:
         mock_preset.free_tier_only = False
         mock_preset.architecture = None
         mock_preset.instance_families = []
+        # Mock to_dict() to return a JSON-serializable dict
+        mock_preset.to_dict.return_value = {
+            "name": "web-server",
+            "description": "Test preset",
+            "min_vcpu": 2,
+            "max_vcpu": 8,
+            "min_memory": 4,
+            "max_memory": 32,
+            "current_generation_only": True,
+        }
         mock_service.get_all_presets.return_value = {"web-server": mock_preset}
         mock_service_class.return_value = mock_service
 

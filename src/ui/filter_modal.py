@@ -4,7 +4,9 @@ from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal, Grid
 from textual.widgets import Static, Input, Select, Button, Checkbox
 from textual.screen import ModalScreen
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
+
+from src.services.filter_preset_service import FilterPresetService, FilterPreset
 
 
 class FilterCriteria:
@@ -134,6 +136,14 @@ class FilterModal(ModalScreen):
         align: left middle;
     }
 
+    .preset-row {
+        height: 3;
+        margin: 1;
+        align: left middle;
+        background: $surface-darken-1;
+        padding: 0 1;
+    }
+
     .filter-label {
         width: 25;
         margin-right: 1;
@@ -150,6 +160,10 @@ class FilterModal(ModalScreen):
     }
 
     Select {
+        width: 1fr;
+    }
+
+    #preset-select {
         width: 1fr;
     }
 
@@ -173,12 +187,39 @@ class FilterModal(ModalScreen):
     def __init__(self, current_criteria: Optional[FilterCriteria] = None):
         super().__init__()
         self.criteria = current_criteria or FilterCriteria()
+        self.preset_service = FilterPresetService()
+        self._selected_preset_name: Optional[str] = None
+
+    def _get_preset_options(self) -> List[Tuple[str, str]]:
+        """Get list of preset options for the dropdown"""
+        options = [("-- Select Preset --", "")]
+        all_presets = self.preset_service.get_all_presets()
+        for name, preset in sorted(all_presets.items()):
+            # Mark custom presets with asterisk
+            if self.preset_service.is_custom_preset(name):
+                label = f"* {name}"
+            else:
+                label = name
+            if preset.description:
+                label = f"{label} ({preset.description[:30]}...)" if len(preset.description) > 30 else f"{label} ({preset.description})"
+            options.append((label, name))
+        return options
 
     def compose(self) -> ComposeResult:
         with Container(id="filter-modal"):
             yield Static("Filter Instances", id="filter-header")
 
             with Vertical(id="filter-content"):
+                # Preset selector
+                with Horizontal(classes="preset-row"):
+                    yield Static("Load Preset:", classes="filter-label")
+                    yield Select(
+                        self._get_preset_options(),
+                        value="",
+                        id="preset-select",
+                        allow_blank=True
+                    )
+
                 # vCPU filters
                 with Horizontal(classes="filter-row"):
                     yield Static("vCPU Count:", classes="filter-label")
@@ -317,11 +358,12 @@ class FilterModal(ModalScreen):
                 # Buttons
                 with Horizontal(id="filter-buttons"):
                     yield Button("Apply Filters", variant="primary", id="apply-button")
+                    yield Button("Save Preset", variant="default", id="save-preset-button")
                     yield Button("Reset All", variant="default", id="reset-button")
                     yield Button("Cancel", variant="default", id="cancel-button")
 
             yield Static(
-                "Esc: Cancel",
+                "Esc: Cancel  |  * = Custom Preset",
                 id="filter-help"
             )
 
@@ -329,13 +371,76 @@ class FilterModal(ModalScreen):
         """Handle button presses"""
         if event.button.id == "apply-button":
             self._apply_filters()
+        elif event.button.id == "save-preset-button":
+            self._show_save_preset_dialog()
         elif event.button.id == "reset-button":
             self._reset_filters()
         elif event.button.id == "cancel-button":
             self.dismiss(None)
 
-    def _apply_filters(self) -> None:
-        """Collect filter values and apply"""
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Handle preset selection"""
+        if event.select.id == "preset-select" and event.value:
+            self._apply_preset(event.value)
+
+    def _apply_preset(self, preset_name: str) -> None:
+        """Apply a preset to the filter fields"""
+        preset = self.preset_service.get_preset(preset_name)
+        if not preset:
+            return
+
+        self._selected_preset_name = preset_name
+
+        # Convert preset to filter criteria and populate fields
+        criteria = preset.to_filter_criteria()
+
+        # Update all the input fields
+        self.query_one("#min-vcpu", Input).value = str(criteria.min_vcpu) if criteria.min_vcpu is not None else ""
+        self.query_one("#max-vcpu", Input).value = str(criteria.max_vcpu) if criteria.max_vcpu is not None else ""
+        self.query_one("#min-memory", Input).value = str(criteria.min_memory_gb) if criteria.min_memory_gb is not None else ""
+        self.query_one("#max-memory", Input).value = str(criteria.max_memory_gb) if criteria.max_memory_gb is not None else ""
+        self.query_one("#gpu-filter", Select).value = criteria.gpu_filter
+        self.query_one("#current-gen-filter", Select).value = criteria.current_generation
+        self.query_one("#burstable-filter", Select).value = criteria.burstable
+        self.query_one("#free-tier-filter", Select).value = criteria.free_tier
+        self.query_one("#arch-filter", Select).value = criteria.architecture
+        self.query_one("#processor-family-filter", Select).value = criteria.processor_family
+        self.query_one("#network-performance-filter", Select).value = criteria.network_performance
+        self.query_one("#family-filter", Input).value = criteria.family_filter
+        self.query_one("#storage-type-filter", Select).value = criteria.storage_type
+        self.query_one("#nvme-filter", Select).value = criteria.nvme_support
+        self.query_one("#min-price", Input).value = str(criteria.min_price) if criteria.min_price is not None else ""
+        self.query_one("#max-price", Input).value = str(criteria.max_price) if criteria.max_price is not None else ""
+
+    def _show_save_preset_dialog(self) -> None:
+        """Show dialog to save current filters as a preset"""
+        # Collect current criteria first
+        criteria = self._collect_criteria()
+
+        # Check if there are any active filters
+        if not criteria.has_active_filters():
+            self.notify("No filters to save. Set at least one filter first.", severity="warning")
+            return
+
+        # Push the save preset modal
+        from src.ui.save_preset_modal import SavePresetModal
+        self.app.push_screen(
+            SavePresetModal(criteria, self._selected_preset_name),
+            self._on_save_preset_complete
+        )
+
+    def _on_save_preset_complete(self, result: Optional[FilterPreset]) -> None:
+        """Handle save preset modal result"""
+        if result:
+            # Refresh the preset dropdown
+            preset_select = self.query_one("#preset-select", Select)
+            preset_select.set_options(self._get_preset_options())
+            preset_select.value = result.name
+            self._selected_preset_name = result.name
+            self.notify(f"Preset '{result.name}' saved successfully!", severity="information")
+
+    def _collect_criteria(self) -> FilterCriteria:
+        """Collect current filter values into FilterCriteria"""
         criteria = FilterCriteria()
 
         # Get vCPU values
@@ -394,11 +499,18 @@ class FilterModal(ModalScreen):
         except ValueError:
             pass
 
+        return criteria
+
+    def _apply_filters(self) -> None:
+        """Collect filter values and apply"""
+        criteria = self._collect_criteria()
         # Dismiss with criteria
         self.dismiss(criteria)
 
     def _reset_filters(self) -> None:
         """Reset all filter inputs to default"""
+        self.query_one("#preset-select", Select).value = ""
+        self._selected_preset_name = None
         self.query_one("#min-vcpu", Input).value = ""
         self.query_one("#max-vcpu", Input).value = ""
         self.query_one("#min-memory", Input).value = ""
