@@ -304,6 +304,77 @@ class TestCLIPresetsSave:
     """Tests for CLI presets save command"""
 
     @patch('src.cli.commands.preset_commands.FilterPresetService')
+    def test_cmd_presets_save_existing_without_force(self, mock_service_class):
+        """Test that saving over existing preset fails without --force"""
+        mock_service = Mock()
+        mock_service.is_builtin_preset.return_value = False
+        mock_service.get_preset.return_value = FilterPreset(name="existing", min_vcpu=2)
+        mock_service_class.return_value = mock_service
+
+        args = Mock()
+        args.preset_name = "existing"
+        args.description = "Try to overwrite"
+        args.min_vcpu = 4
+        args.max_vcpu = None
+        args.min_memory = None
+        args.max_memory = None
+        args.has_gpu = None
+        args.current_generation = False
+        args.burstable = False
+        args.free_tier = False
+        args.architecture = None
+        args.instance_families = None
+        args.processor_family = None
+        args.network_performance = None
+        args.storage_type = None
+        args.nvme_support = None
+        args.min_price = None
+        args.max_price = None
+        args.force = False  # Not using --force
+        args.format = "table"
+        args.quiet = False
+
+        result = preset_commands.cmd_presets_save(args)
+        assert result == 1  # Should fail
+        mock_service.save_custom_preset.assert_not_called()
+
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
+    def test_cmd_presets_save_existing_with_force(self, mock_service_class):
+        """Test that saving over existing preset succeeds with --force"""
+        mock_service = Mock()
+        mock_service.is_builtin_preset.return_value = False
+        mock_service.get_preset.return_value = FilterPreset(name="existing", min_vcpu=2)
+        mock_service.save_custom_preset.return_value = True
+        mock_service_class.return_value = mock_service
+
+        args = Mock()
+        args.preset_name = "existing"
+        args.description = "Overwrite"
+        args.min_vcpu = 8
+        args.max_vcpu = None
+        args.min_memory = None
+        args.max_memory = None
+        args.has_gpu = None
+        args.current_generation = False
+        args.burstable = False
+        args.free_tier = False
+        args.architecture = None
+        args.instance_families = None
+        args.processor_family = None
+        args.network_performance = None
+        args.storage_type = None
+        args.nvme_support = None
+        args.min_price = None
+        args.max_price = None
+        args.force = True  # Using --force
+        args.format = "table"
+        args.quiet = False
+
+        result = preset_commands.cmd_presets_save(args)
+        assert result == 0  # Should succeed
+        mock_service.save_custom_preset.assert_called_once()
+
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
     def test_cmd_presets_save_success(self, mock_service_class):
         """Test successful preset save"""
         mock_service = Mock()
@@ -407,6 +478,82 @@ class TestCLIPresetsDelete:
         result = preset_commands.cmd_presets_delete(args)
         assert result == 0
         mock_service.delete_custom_preset.assert_called_once_with("my-preset")
+
+    @patch('builtins.input', return_value='y')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
+    def test_cmd_presets_delete_confirmed(self, mock_service_class, mock_input):
+        """Test delete with user confirmation (y)"""
+        mock_service = Mock()
+        mock_service.is_builtin_preset.return_value = False
+        mock_service.is_custom_preset.return_value = True
+        mock_service.delete_custom_preset.return_value = True
+        mock_service_class.return_value = mock_service
+
+        args = Mock()
+        args.preset_name = "my-preset"
+        args.force = False  # Will prompt for confirmation
+        args.quiet = False
+
+        result = preset_commands.cmd_presets_delete(args)
+        assert result == 0
+        mock_input.assert_called_once()
+        mock_service.delete_custom_preset.assert_called_once_with("my-preset")
+
+    @patch('builtins.input', return_value='yes')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
+    def test_cmd_presets_delete_confirmed_yes(self, mock_service_class, mock_input):
+        """Test delete with user confirmation (yes)"""
+        mock_service = Mock()
+        mock_service.is_builtin_preset.return_value = False
+        mock_service.is_custom_preset.return_value = True
+        mock_service.delete_custom_preset.return_value = True
+        mock_service_class.return_value = mock_service
+
+        args = Mock()
+        args.preset_name = "my-preset"
+        args.force = False
+        args.quiet = False
+
+        result = preset_commands.cmd_presets_delete(args)
+        assert result == 0
+        mock_service.delete_custom_preset.assert_called_once()
+
+    @patch('builtins.input', return_value='n')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
+    def test_cmd_presets_delete_cancelled(self, mock_service_class, mock_input):
+        """Test delete cancelled by user (n)"""
+        mock_service = Mock()
+        mock_service.is_builtin_preset.return_value = False
+        mock_service.is_custom_preset.return_value = True
+        mock_service_class.return_value = mock_service
+
+        args = Mock()
+        args.preset_name = "my-preset"
+        args.force = False  # Will prompt for confirmation
+        args.quiet = False
+
+        result = preset_commands.cmd_presets_delete(args)
+        assert result == 0  # Cancelled is still success (user choice)
+        mock_input.assert_called_once()
+        mock_service.delete_custom_preset.assert_not_called()
+
+    @patch('builtins.input', return_value='')
+    @patch('src.cli.commands.preset_commands.FilterPresetService')
+    def test_cmd_presets_delete_cancelled_empty(self, mock_service_class, mock_input):
+        """Test delete cancelled with empty input"""
+        mock_service = Mock()
+        mock_service.is_builtin_preset.return_value = False
+        mock_service.is_custom_preset.return_value = True
+        mock_service_class.return_value = mock_service
+
+        args = Mock()
+        args.preset_name = "my-preset"
+        args.force = False
+        args.quiet = False
+
+        result = preset_commands.cmd_presets_delete(args)
+        assert result == 0
+        mock_service.delete_custom_preset.assert_not_called()
 
     @patch('src.cli.commands.preset_commands.FilterPresetService')
     def test_cmd_presets_delete_builtin_blocked(self, mock_service_class):
