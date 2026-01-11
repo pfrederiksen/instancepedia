@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from decimal import Decimal
+from botocore.exceptions import ClientError, BotoCoreError
 
 from src.services.pricing_service import PricingService
 from src.services.aws_client import AWSClient
@@ -545,3 +546,334 @@ class TestGetReservedInstancePrice:
         assert price is None
         # On API error after retries, None is NOT cached (allows retry on next request)
         pricing_service.cache.set.assert_not_called()
+
+
+class TestSpotPriceHistory:
+    """Test get_spot_price_history method"""
+
+    def test_get_spot_price_history_success(self, pricing_service, mock_aws_client):
+        """Test successful spot price history fetch with statistics"""
+        from datetime import datetime, timezone
+
+        # Mock EC2 response with multiple price points
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'Timestamp': now, 'SpotPrice': '0.0104'},
+                {'Timestamp': now, 'SpotPrice': '0.0120'},
+                {'Timestamp': now, 'SpotPrice': '0.0095'},
+                {'Timestamp': now, 'SpotPrice': '0.0110'},
+                {'Timestamp': now, 'SpotPrice': '0.0100'},
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call method
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1", days=30)
+
+        # Verify result
+        assert history is not None
+        assert history.instance_type == "t3.micro"
+        assert history.region == "us-east-1"
+        assert history.days == 30
+        assert history.current_price == 0.0100  # Last price in list
+        assert history.min_price == 0.0095
+        assert history.max_price == 0.0120
+        assert abs(history.avg_price - 0.01058) < 0.0001  # Mean of prices
+        assert history.median_price == 0.0104
+        assert history.std_dev is not None
+        assert len(history.price_points) == 5
+
+    def test_get_spot_price_history_single_price_point(self, pricing_service, mock_aws_client):
+        """Test spot price history with single price point (std_dev should be None)"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'Timestamp': now, 'SpotPrice': '0.0104'},
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is not None
+        assert history.current_price == 0.0104
+        assert history.min_price == 0.0104
+        assert history.max_price == 0.0104
+        assert history.avg_price == 0.0104
+        assert history.median_price == 0.0104
+        assert history.std_dev is None  # Cannot calculate std_dev with 1 point
+        assert len(history.price_points) == 1
+
+    def test_get_spot_price_history_empty_response(self, pricing_service, mock_aws_client):
+        """Test spot price history with empty response"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': []
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+    def test_get_spot_price_history_no_key(self, pricing_service, mock_aws_client):
+        """Test spot price history with missing SpotPriceHistory key"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {}
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+    def test_get_spot_price_history_sorting(self, pricing_service, mock_aws_client):
+        """Test that price points are sorted oldest first"""
+        from datetime import datetime, timezone, timedelta
+
+        now = datetime.now(timezone.utc)
+        older = now - timedelta(hours=2)
+        oldest = now - timedelta(hours=4)
+
+        # Provide prices in random order
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'Timestamp': now, 'SpotPrice': '0.0104'},
+                {'Timestamp': oldest, 'SpotPrice': '0.0095'},
+                {'Timestamp': older, 'SpotPrice': '0.0110'},
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is not None
+        # Verify sorted order (oldest first)
+        assert history.price_points[0][0] == oldest
+        assert history.price_points[1][0] == older
+        assert history.price_points[2][0] == now
+        # Current price should be the last (most recent)
+        assert history.current_price == 0.0104
+
+    def test_get_spot_price_history_client_error(self, pricing_service, mock_aws_client):
+        """Test spot price history handles ClientError gracefully"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.side_effect = ClientError(
+            {'Error': {'Code': 'RequestLimitExceeded'}}, 'describe_spot_price_history'
+        )
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+    def test_get_spot_price_history_botocore_error(self, pricing_service, mock_aws_client):
+        """Test spot price history handles BotoCoreError gracefully"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.side_effect = BotoCoreError()
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+    def test_get_spot_price_history_generic_exception(self, pricing_service, mock_aws_client):
+        """Test spot price history handles generic exception gracefully"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.side_effect = Exception("Unexpected error")
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+
+class TestSpotPriceHistoryProperties:
+    """Test SpotPriceHistory dataclass properties"""
+
+    def test_volatility_percentage_normal(self):
+        """Test volatility percentage calculation with normal values"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0104,
+            min_price=0.0095,
+            max_price=0.0120,
+            avg_price=0.0105,
+            median_price=0.0104,
+            std_dev=0.0010,
+            price_points=[(now, 0.0104)]
+        )
+
+        volatility = history.volatility_percentage
+        # std_dev / avg_price * 100 = 0.0010 / 0.0105 * 100 ≈ 9.52%
+        assert volatility is not None
+        assert abs(volatility - 9.52) < 0.1
+
+    def test_volatility_percentage_none_std_dev(self):
+        """Test volatility percentage with None std_dev"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0104,
+            min_price=0.0104,
+            max_price=0.0104,
+            avg_price=0.0104,
+            median_price=0.0104,
+            std_dev=None,  # Single price point
+            price_points=[(now, 0.0104)]
+        )
+
+        volatility = history.volatility_percentage
+        assert volatility is None
+
+    def test_volatility_percentage_zero_avg_price(self):
+        """Test volatility percentage with zero average price"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0,
+            min_price=0.0,
+            max_price=0.0,
+            avg_price=0.0,  # Zero average
+            median_price=0.0,
+            std_dev=0.0,
+            price_points=[(now, 0.0)]
+        )
+
+        volatility = history.volatility_percentage
+        assert volatility is None  # Cannot divide by zero
+
+    def test_price_range_normal(self):
+        """Test price range calculation with normal values"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0104,
+            min_price=0.0095,
+            max_price=0.0120,
+            avg_price=0.0105,
+            median_price=0.0104,
+            std_dev=0.0010,
+            price_points=[(now, 0.0104)]
+        )
+
+        price_range = history.price_range
+        # max_price - min_price = 0.0120 - 0.0095 = 0.0025
+        assert price_range is not None
+        assert abs(price_range - 0.0025) < 0.0001
+
+    def test_price_range_none_values(self):
+        """Test price range with None min/max prices"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=None,
+            min_price=None,
+            max_price=None,
+            avg_price=None,
+            median_price=None,
+            std_dev=None,
+            price_points=[]
+        )
+
+        price_range = history.price_range
+        assert price_range is None
+
+    def test_savings_vs_current_normal(self):
+        """Test savings vs current price calculation with normal values"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0120,
+            min_price=0.0095,
+            max_price=0.0120,
+            avg_price=0.0105,
+            median_price=0.0104,
+            std_dev=0.0010,
+            price_points=[(now, 0.0120)]
+        )
+
+        savings = history.savings_vs_current
+        # (current - min) / current * 100 = (0.0120 - 0.0095) / 0.0120 * 100 ≈ 20.83%
+        assert savings is not None
+        assert abs(savings - 20.83) < 0.1
+
+    def test_savings_vs_current_none_values(self):
+        """Test savings vs current with None values"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=None,
+            min_price=None,
+            max_price=None,
+            avg_price=None,
+            median_price=None,
+            std_dev=None,
+            price_points=[]
+        )
+
+        savings = history.savings_vs_current
+        assert savings is None
+
+    def test_savings_vs_current_zero_current_price(self):
+        """Test savings vs current with zero current price"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0,  # Zero current price
+            min_price=0.0095,
+            max_price=0.0120,
+            avg_price=0.0105,
+            median_price=0.0104,
+            std_dev=0.0010,
+            price_points=[(now, 0.0)]
+        )
+
+        savings = history.savings_vs_current
+        assert savings is None  # Cannot divide by zero
