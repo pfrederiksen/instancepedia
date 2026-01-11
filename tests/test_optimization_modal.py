@@ -8,7 +8,7 @@ from textual.app import App
 
 from src.ui.optimization_modal import OptimizationModal
 from src.services.optimization_service import OptimizationReport, OptimizationRecommendation
-from src.models.instance_type import InstanceType, VCpuInfo, MemoryInfo, PricingInfo
+from src.models.instance_type import InstanceType, VCpuInfo, MemoryInfo, PricingInfo, NetworkInfo, ProcessorInfo, EbsInfo
 
 
 @pytest.fixture(autouse=True)
@@ -138,11 +138,19 @@ class TestOptimizationModal:
     @pytest.mark.asyncio
     async def test_modal_handles_no_recommendations(self):
         """Test that modal shows message when no recommendations found"""
-        # Create instance with pricing
+        # Create minimal instance with pricing
         instance = InstanceType(
             instance_type="t3.large",
             vcpu_info=VCpuInfo(default_vcpus=2, default_cores=1, default_threads_per_core=2),
             memory_info=MemoryInfo(size_in_mib=8192),
+            network_info=NetworkInfo(
+                network_performance="Up to 5 Gigabit",
+                maximum_network_interfaces=3,
+                maximum_ipv4_addresses_per_interface=15,
+                maximum_ipv6_addresses_per_interface=15
+            ),
+            processor_info=ProcessorInfo(supported_architectures=["x86_64"]),
+            ebs_info=EbsInfo(ebs_optimized_support="default"),
             pricing=PricingInfo(on_demand_price=0.10)
         )
 
