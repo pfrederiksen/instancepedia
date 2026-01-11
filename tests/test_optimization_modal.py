@@ -1,14 +1,33 @@
 """Tests for OptimizationModal"""
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from dataclasses import dataclass
 
 from textual.app import App
 
 from src.ui.optimization_modal import OptimizationModal
 from src.services.optimization_service import OptimizationReport, OptimizationRecommendation
-from src.models.instance_type import InstanceType, VCpuInfo, MemoryInfo, PricingInfo
+from src.models.instance_type import InstanceType, VCpuInfo, MemoryInfo, PricingInfo, NetworkInfo, ProcessorInfo, EbsInfo
+
+
+@pytest.fixture(autouse=True)
+def mock_aws_client():
+    """Auto-fixture to mock AsyncAWSClient for all tests"""
+    with patch('src.ui.optimization_modal.AsyncAWSClient') as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = AsyncMock()
+
+        # Mock get_ec2_client to return async context manager
+        mock_ec2 = AsyncMock()
+        mock_ec2.__aenter__.return_value = mock_ec2
+        mock_ec2.__aexit__.return_value = AsyncMock()
+        mock_ec2.describe_instance_types.return_value = {"InstanceTypes": []}
+        mock_client.get_ec2_client.return_value = mock_ec2
+
+        mock_client_class.return_value = mock_client
+        yield mock_client
 
 
 class OptimizationModalTestApp(App):
@@ -19,13 +38,19 @@ class OptimizationModalTestApp(App):
         self.instance_type = instance_type
         self.region = region
         self.usage_pattern = usage_pattern
+        self.modal_dismissed = False
 
     def on_mount(self):
-        self.push_screen(OptimizationModal(
+        modal = OptimizationModal(
             self.instance_type,
             self.region,
             self.usage_pattern
-        ))
+        )
+        self.push_screen(modal, callback=self._on_modal_dismiss)
+
+    def _on_modal_dismiss(self, result):
+        """Track when modal is dismissed"""
+        self.modal_dismissed = True
 
 
 class TestOptimizationModal:
@@ -40,8 +65,8 @@ class TestOptimizationModal:
 
             # Check title is displayed
             title = app.screen.query_one("#modal-title")
-            assert "Cost Optimization" in title.renderable
-            assert "t3.large" in title.renderable
+            assert "Cost Optimization" in title.content
+            assert "t3.large" in title.content
 
     @pytest.mark.asyncio
     async def test_modal_shows_loading_initially(self):
@@ -66,7 +91,7 @@ class TestOptimizationModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_q_dismisses(self):
@@ -80,7 +105,7 @@ class TestOptimizationModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_handles_instance_not_found(self):
@@ -105,7 +130,7 @@ class TestOptimizationModal:
                 # Should show error message
                 try:
                     no_recs = app.screen.query_one("#no-recommendations")
-                    assert "not found" in no_recs.renderable.lower()
+                    assert "not found" in no_recs.content.lower()
                 except Exception:
                     # It's okay if the widget ID is different, as long as no crash
                     pass
@@ -113,11 +138,19 @@ class TestOptimizationModal:
     @pytest.mark.asyncio
     async def test_modal_handles_no_recommendations(self):
         """Test that modal shows message when no recommendations found"""
-        # Create instance with pricing
+        # Create minimal instance with pricing
         instance = InstanceType(
             instance_type="t3.large",
             vcpu_info=VCpuInfo(default_vcpus=2, default_cores=1, default_threads_per_core=2),
             memory_info=MemoryInfo(size_in_mib=8192),
+            network_info=NetworkInfo(
+                network_performance="Up to 5 Gigabit",
+                maximum_network_interfaces=3,
+                maximum_ipv4_addresses_per_interface=15,
+                maximum_ipv6_addresses_per_interface=15
+            ),
+            processor_info=ProcessorInfo(supported_architectures=["x86_64"]),
+            ebs_info=EbsInfo(ebs_optimized_support="default"),
             pricing=PricingInfo(on_demand_price=0.10)
         )
 
@@ -165,7 +198,7 @@ class TestOptimizationModal:
                         # Should show "no recommendations" message
                         try:
                             no_recs = app.screen.query_one("#no-recommendations")
-                            assert "no" in no_recs.renderable.lower() or "optimized" in no_recs.renderable.lower()
+                            assert "no" in no_recs.content.lower() or "optimized" in no_recs.content.lower()
                         except Exception:
                             # It's okay if not found - modal may have different implementation
                             pass
