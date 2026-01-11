@@ -209,3 +209,199 @@ class TestAppMessages:
         msg = InstancepediaApp.InstanceTypesError(error_msg)
 
         assert msg.error_msg == error_msg
+
+
+class TestInstancepediaAppWorkers:
+    """Tests for InstancepediaApp worker state management"""
+
+    @pytest.fixture
+    def app(self, mock_settings):
+        """Create app instance for testing"""
+        return InstancepediaApp(mock_settings, debug=False)
+
+    @patch('src.app.InstanceList')
+    def test_on_worker_state_changed_success(self, mock_instance_list, app):
+        """Test worker state change handler with SUCCESS state"""
+        from textual.worker import WorkerState
+
+        # Create mock worker with SUCCESS state
+        mock_worker = Mock()
+        mock_worker.result = [Mock(), Mock()]  # Mock instance types
+
+        # Set as current worker
+        app._current_worker = mock_worker
+
+        # Create state changed event
+        event = Mock()
+        event.worker = mock_worker
+        event.state = WorkerState.SUCCESS
+
+        # Mock the handler's internal methods
+        with patch.object(app, '_handle_fetch_success') as mock_success:
+            # Call handler
+            app.on_worker_state_changed(event)
+
+            # Verify success handler was called with correct args
+            mock_success.assert_called_once_with(mock_worker.result)
+
+    def test_on_worker_state_changed_error(self, app):
+        """Test worker state change handler with ERROR state"""
+        from textual.worker import WorkerState
+
+        # Create mock worker with ERROR state
+        mock_worker = Mock()
+        mock_worker.error = Exception("Fetch failed")
+
+        # Set as current worker
+        app._current_worker = mock_worker
+
+        # Create state changed event
+        event = Mock()
+        event.worker = mock_worker
+        event.state = WorkerState.ERROR
+
+        # Mock the handler's internal methods
+        with patch.object(app, '_handle_fetch_error') as mock_error:
+            # Call handler
+            app.on_worker_state_changed(event)
+
+            # Verify error handler was called with correct args
+            mock_error.assert_called_once_with(mock_worker.error)
+
+    def test_on_worker_state_changed_ignores_other_workers(self, app):
+        """Test worker state change handler ignores events from other workers"""
+        from textual.worker import WorkerState
+
+        # Create two different workers
+        our_worker = Mock()
+        other_worker = Mock()
+
+        # Set our worker as current
+        app._current_worker = our_worker
+
+        # Create event for other worker
+        event = Mock()
+        event.worker = other_worker
+        event.state = WorkerState.SUCCESS
+
+        # Mock dependencies
+        app.push_screen = Mock()
+        app.pop_screen = Mock()
+
+        # Call handler
+        app.on_worker_state_changed(event)
+
+        # Verify no action was taken
+        app.push_screen.assert_not_called()
+        app.pop_screen.assert_not_called()
+
+    def test_on_worker_state_changed_handles_result_exception(self, app):
+        """Test worker state handler gracefully handles exception when getting result"""
+        from textual.worker import WorkerState
+
+        # Create mock worker that raises exception when accessing result
+        mock_worker = Mock()
+        # Configure result property to raise exception
+        type(mock_worker).result = property(lambda self: (_ for _ in ()).throw(Exception("Result access failed")))
+
+        # Set as current worker
+        app._current_worker = mock_worker
+
+        # Create state changed event
+        event = Mock()
+        event.worker = mock_worker
+        event.state = WorkerState.SUCCESS
+
+        # Mock the handler's internal methods
+        with patch.object(app, '_handle_fetch_error') as mock_error:
+            # Call handler - should not raise exception
+            app.on_worker_state_changed(event)
+
+            # Verify error handler was called (fallback behavior)
+            assert mock_error.called
+
+
+class TestInstancepediaAppErrorHandling:
+    """Tests for InstancepediaApp error handling"""
+
+    @pytest.fixture
+    def app(self, mock_settings):
+        """Create app instance for testing"""
+        return InstancepediaApp(mock_settings, debug=False)
+
+    @patch('src.app.ErrorScreen')
+    def test_handle_fetch_error_opt_in_region(self, mock_error_screen, app):
+        """Test _handle_fetch_error detects opt-in region errors"""
+        # Create error with opt-in region message
+        error = Exception("OptInRequired: The requested region is not enabled for this account")
+
+        # Mock screen operations
+        app.pop_screen = Mock()
+        app.push_screen = Mock()
+
+        # Mock isinstance check to return True for RegionSelector
+        with patch('src.app.isinstance', return_value=True):
+            # Call error handler
+            app._handle_fetch_error(error)
+
+        # Verify error screen was created with appropriate message
+        assert mock_error_screen.called
+        call_args = mock_error_screen.call_args[0][0]
+        assert "not enabled" in call_args.lower() or "opt-in" in call_args.lower()
+
+    @patch('src.app.ErrorScreen')
+    def test_handle_fetch_error_generic(self, mock_error_screen, app):
+        """Test _handle_fetch_error handles generic errors"""
+        # Create generic error
+        error = Exception("Connection timeout")
+
+        # Mock screen operations
+        app.pop_screen = Mock()
+        app.push_screen = Mock()
+
+        # Mock isinstance check to return True for RegionSelector
+        with patch('src.app.isinstance', return_value=True):
+            # Call error handler
+            app._handle_fetch_error(error)
+
+        # Verify error screen was created
+        assert mock_error_screen.called
+
+    @patch('src.app.ErrorScreen')
+    def test_handle_fetch_success_empty_instances(self, mock_error_screen, app):
+        """Test _handle_fetch_success shows error for empty instance list"""
+        # Call with empty list
+        app.pop_screen = Mock()
+        app.push_screen = Mock()
+
+        # Mock isinstance check to return True for RegionSelector
+        with patch('src.app.isinstance', return_value=True):
+            app._handle_fetch_success([])
+
+        # Verify error screen was pushed
+        assert mock_error_screen.called
+        call_args = mock_error_screen.call_args[0][0]
+        assert "no instance types" in call_args.lower()
+
+    @patch('src.app.InstanceList')
+    def test_handle_fetch_success_with_instances(self, mock_instance_list, app):
+        """Test _handle_fetch_success transitions to instance list"""
+        # Mock instance types
+        mock_instances = [Mock(), Mock(), Mock()]
+
+        # Mock screen operations
+        app.pop_screen = Mock()
+        app.push_screen = Mock()
+        app._fetch_pricing_background = Mock()  # Mock pricing fetch
+
+        # Mock isinstance check to return True for RegionSelector
+        with patch('src.app.isinstance', return_value=True):
+            # Call handler
+            app._handle_fetch_success(mock_instances)
+
+        # Verify instances were stored
+        assert app.instance_types == mock_instances
+        # Verify screen transition occurred
+        assert app.push_screen.called
+        # Verify pricing fetch was initiated
+        assert app._fetch_pricing_background.called
