@@ -1,8 +1,10 @@
 """Tests for PricingService"""
 
+import json
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from decimal import Decimal
+from botocore.exceptions import ClientError, BotoCoreError
 
 from src.services.pricing_service import PricingService
 from src.services.aws_client import AWSClient
@@ -545,3 +547,1205 @@ class TestGetReservedInstancePrice:
         assert price is None
         # On API error after retries, None is NOT cached (allows retry on next request)
         pricing_service.cache.set.assert_not_called()
+
+
+class TestSpotPriceHistory:
+    """Test get_spot_price_history method"""
+
+    def test_get_spot_price_history_success(self, pricing_service, mock_aws_client):
+        """Test successful spot price history fetch with statistics"""
+        from datetime import datetime, timezone
+
+        # Mock EC2 response with multiple price points
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'Timestamp': now, 'SpotPrice': '0.0104'},
+                {'Timestamp': now, 'SpotPrice': '0.0120'},
+                {'Timestamp': now, 'SpotPrice': '0.0095'},
+                {'Timestamp': now, 'SpotPrice': '0.0110'},
+                {'Timestamp': now, 'SpotPrice': '0.0100'},
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call method
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1", days=30)
+
+        # Verify result
+        assert history is not None
+        assert history.instance_type == "t3.micro"
+        assert history.region == "us-east-1"
+        assert history.days == 30
+        assert history.current_price == 0.0100  # Last price in list
+        assert history.min_price == 0.0095
+        assert history.max_price == 0.0120
+        assert abs(history.avg_price - 0.01058) < 0.0001  # Mean of prices
+        assert history.median_price == 0.0104
+        assert history.std_dev is not None
+        assert len(history.price_points) == 5
+
+    def test_get_spot_price_history_single_price_point(self, pricing_service, mock_aws_client):
+        """Test spot price history with single price point (std_dev should be None)"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'Timestamp': now, 'SpotPrice': '0.0104'},
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is not None
+        assert history.current_price == 0.0104
+        assert history.min_price == 0.0104
+        assert history.max_price == 0.0104
+        assert history.avg_price == 0.0104
+        assert history.median_price == 0.0104
+        assert history.std_dev is None  # Cannot calculate std_dev with 1 point
+        assert len(history.price_points) == 1
+
+    def test_get_spot_price_history_empty_response(self, pricing_service, mock_aws_client):
+        """Test spot price history with empty response"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': []
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+    def test_get_spot_price_history_no_key(self, pricing_service, mock_aws_client):
+        """Test spot price history with missing SpotPriceHistory key"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {}
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+    def test_get_spot_price_history_sorting(self, pricing_service, mock_aws_client):
+        """Test that price points are sorted oldest first"""
+        from datetime import datetime, timezone, timedelta
+
+        now = datetime.now(timezone.utc)
+        older = now - timedelta(hours=2)
+        oldest = now - timedelta(hours=4)
+
+        # Provide prices in random order
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'Timestamp': now, 'SpotPrice': '0.0104'},
+                {'Timestamp': oldest, 'SpotPrice': '0.0095'},
+                {'Timestamp': older, 'SpotPrice': '0.0110'},
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is not None
+        # Verify sorted order (oldest first)
+        assert history.price_points[0][0] == oldest
+        assert history.price_points[1][0] == older
+        assert history.price_points[2][0] == now
+        # Current price should be the last (most recent)
+        assert history.current_price == 0.0104
+
+    def test_get_spot_price_history_client_error(self, pricing_service, mock_aws_client):
+        """Test spot price history handles ClientError gracefully"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.side_effect = ClientError(
+            {'Error': {'Code': 'RequestLimitExceeded'}}, 'describe_spot_price_history'
+        )
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+    def test_get_spot_price_history_botocore_error(self, pricing_service, mock_aws_client):
+        """Test spot price history handles BotoCoreError gracefully"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.side_effect = BotoCoreError()
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+    def test_get_spot_price_history_generic_exception(self, pricing_service, mock_aws_client):
+        """Test spot price history handles generic exception gracefully"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.side_effect = Exception("Unexpected error")
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        history = pricing_service.get_spot_price_history("t3.micro", "us-east-1")
+
+        assert history is None
+
+
+class TestSpotPriceHistoryProperties:
+    """Test SpotPriceHistory dataclass properties"""
+
+    def test_volatility_percentage_normal(self):
+        """Test volatility percentage calculation with normal values"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0104,
+            min_price=0.0095,
+            max_price=0.0120,
+            avg_price=0.0105,
+            median_price=0.0104,
+            std_dev=0.0010,
+            price_points=[(now, 0.0104)]
+        )
+
+        volatility = history.volatility_percentage
+        # std_dev / avg_price * 100 = 0.0010 / 0.0105 * 100 ≈ 9.52%
+        assert volatility is not None
+        assert abs(volatility - 9.52) < 0.1
+
+    def test_volatility_percentage_none_std_dev(self):
+        """Test volatility percentage with None std_dev"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0104,
+            min_price=0.0104,
+            max_price=0.0104,
+            avg_price=0.0104,
+            median_price=0.0104,
+            std_dev=None,  # Single price point
+            price_points=[(now, 0.0104)]
+        )
+
+        volatility = history.volatility_percentage
+        assert volatility is None
+
+    def test_volatility_percentage_zero_avg_price(self):
+        """Test volatility percentage with zero average price"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0,
+            min_price=0.0,
+            max_price=0.0,
+            avg_price=0.0,  # Zero average
+            median_price=0.0,
+            std_dev=0.0,
+            price_points=[(now, 0.0)]
+        )
+
+        volatility = history.volatility_percentage
+        assert volatility is None  # Cannot divide by zero
+
+    def test_price_range_normal(self):
+        """Test price range calculation with normal values"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0104,
+            min_price=0.0095,
+            max_price=0.0120,
+            avg_price=0.0105,
+            median_price=0.0104,
+            std_dev=0.0010,
+            price_points=[(now, 0.0104)]
+        )
+
+        price_range = history.price_range
+        # max_price - min_price = 0.0120 - 0.0095 = 0.0025
+        assert price_range is not None
+        assert abs(price_range - 0.0025) < 0.0001
+
+    def test_price_range_none_values(self):
+        """Test price range with None min/max prices"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=None,
+            min_price=None,
+            max_price=None,
+            avg_price=None,
+            median_price=None,
+            std_dev=None,
+            price_points=[]
+        )
+
+        price_range = history.price_range
+        assert price_range is None
+
+    def test_savings_vs_current_normal(self):
+        """Test savings vs current price calculation with normal values"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0120,
+            min_price=0.0095,
+            max_price=0.0120,
+            avg_price=0.0105,
+            median_price=0.0104,
+            std_dev=0.0010,
+            price_points=[(now, 0.0120)]
+        )
+
+        savings = history.savings_vs_current
+        # (current - min) / current * 100 = (0.0120 - 0.0095) / 0.0120 * 100 ≈ 20.83%
+        assert savings is not None
+        assert abs(savings - 20.83) < 0.1
+
+    def test_savings_vs_current_none_values(self):
+        """Test savings vs current with None values"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=None,
+            min_price=None,
+            max_price=None,
+            avg_price=None,
+            median_price=None,
+            std_dev=None,
+            price_points=[]
+        )
+
+        savings = history.savings_vs_current
+        assert savings is None
+
+    def test_savings_vs_current_zero_current_price(self):
+        """Test savings vs current with zero current price"""
+        from datetime import datetime, timezone
+        from src.services.pricing_service import SpotPriceHistory
+
+        now = datetime.now(timezone.utc)
+        history = SpotPriceHistory(
+            instance_type="t3.micro",
+            region="us-east-1",
+            days=30,
+            current_price=0.0,  # Zero current price
+            min_price=0.0095,
+            max_price=0.0120,
+            avg_price=0.0105,
+            median_price=0.0104,
+            std_dev=0.0010,
+            price_points=[(now, 0.0)]
+        )
+
+        savings = history.savings_vs_current
+        assert savings is None  # Cannot divide by zero
+
+
+class TestGetSpotPricesBatch:
+    """Tests for get_spot_prices_batch method"""
+
+    def test_get_spot_prices_batch_single_chunk(self, pricing_service, mock_aws_client):
+        """Test batch fetch with single chunk (< 50 instances)"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},
+                {'InstanceType': 't3.small', 'SpotPrice': '0.0208', 'Timestamp': now},
+                {'InstanceType': 't3.medium', 'SpotPrice': '0.0416', 'Timestamp': now},
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call with 3 instance types (single chunk)
+        result = pricing_service.get_spot_prices_batch(
+            ['t3.micro', 't3.small', 't3.medium'],
+            'us-east-1'
+        )
+
+        # Verify results
+        assert result == {
+            't3.micro': 0.0104,
+            't3.small': 0.0208,
+            't3.medium': 0.0416
+        }
+        # Verify single API call (no chunking needed)
+        assert mock_ec2_client.describe_spot_price_history.call_count == 1
+
+    def test_get_spot_prices_batch_multiple_chunks(self, pricing_service, mock_aws_client):
+        """Test batch fetch with multiple chunks (> 50 instances)"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+
+        # Create 75 instance types (should trigger 2 chunks: 50 + 25)
+        instance_types = [f't3.type{i}' for i in range(75)]
+
+        # Mock responses for each chunk
+        def mock_response(InstanceTypes, **kwargs):
+            return {
+                'SpotPriceHistory': [
+                    {'InstanceType': inst_type, 'SpotPrice': f'0.{i:04d}', 'Timestamp': now}
+                    for i, inst_type in enumerate(InstanceTypes)
+                ]
+            }
+
+        mock_ec2_client.describe_spot_price_history.side_effect = mock_response
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call with 75 instance types
+        result = pricing_service.get_spot_prices_batch(instance_types, 'us-east-1')
+
+        # Verify all 75 instances have prices
+        assert len(result) == 75
+        # Verify 2 API calls (2 chunks: 50 + 25)
+        assert mock_ec2_client.describe_spot_price_history.call_count == 2
+
+    def test_get_spot_prices_batch_with_pagination(self, pricing_service, mock_aws_client):
+        """Test batch fetch with NextToken pagination"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+
+        # Mock paginated responses
+        mock_ec2_client.describe_spot_price_history.side_effect = [
+            {
+                'SpotPriceHistory': [
+                    {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},
+                ],
+                'NextToken': 'token123'
+            },
+            {
+                'SpotPriceHistory': [
+                    {'InstanceType': 't3.small', 'SpotPrice': '0.0208', 'Timestamp': now},
+                ]
+                # No NextToken - last page
+            }
+        ]
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call batch method
+        result = pricing_service.get_spot_prices_batch(['t3.micro', 't3.small'], 'us-east-1')
+
+        # Verify both prices collected from paginated results
+        assert result == {
+            't3.micro': 0.0104,
+            't3.small': 0.0208
+        }
+        # Verify 2 API calls (pagination)
+        assert mock_ec2_client.describe_spot_price_history.call_count == 2
+        # Verify second call included NextToken
+        second_call_kwargs = mock_ec2_client.describe_spot_price_history.call_args_list[1][1]
+        assert second_call_kwargs['NextToken'] == 'token123'
+
+    def test_get_spot_prices_batch_most_recent_price(self, pricing_service, mock_aws_client):
+        """Test batch fetch keeps most recent price per instance type"""
+        from datetime import datetime, timezone, timedelta
+
+        now = datetime.now(timezone.utc)
+        old_time = now - timedelta(hours=1)
+
+        mock_ec2_client = Mock()
+        # Return multiple prices for same instance type with different timestamps
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0100', 'Timestamp': old_time},  # Older
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},  # Most recent
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0095', 'Timestamp': old_time - timedelta(hours=1)},  # Oldest
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call batch method
+        result = pricing_service.get_spot_prices_batch(['t3.micro'], 'us-east-1')
+
+        # Verify only most recent price kept
+        assert result == {'t3.micro': 0.0104}
+
+    def test_get_spot_prices_batch_client_error_no_retry(self, pricing_service, mock_aws_client):
+        """Test batch fetch doesn't retry non-rate-limit ClientErrors"""
+        mock_ec2_client = Mock()
+
+        # Non-rate-limit error (should not retry)
+        mock_ec2_client.describe_spot_price_history.side_effect = ClientError(
+            {'Error': {'Code': 'InvalidParameterValue'}},
+            'describe_spot_price_history'
+        )
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(['t3.micro'], 'us-east-1', max_retries=3)
+
+        # Verify marked as None (no retries for non-rate-limit errors)
+        assert result == {'t3.micro': None}
+        # Verify only 1 API call (no retries)
+        assert mock_ec2_client.describe_spot_price_history.call_count == 1
+
+    def test_get_spot_prices_batch_pagination_error(self, pricing_service, mock_aws_client):
+        """Test batch fetch handles pagination errors gracefully"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+
+        # First page succeeds, second page fails
+        mock_ec2_client.describe_spot_price_history.side_effect = [
+            {
+                'SpotPriceHistory': [
+                    {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},
+                ],
+                'NextToken': 'token123'
+            },
+            Exception("Connection timeout")
+        ]
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(['t3.micro'], 'us-east-1')
+
+        # Verify first page data was kept despite second page error
+        assert result == {'t3.micro': 0.0104}
+
+    def test_get_spot_prices_batch_empty_list(self, pricing_service, mock_aws_client):
+        """Test batch fetch with empty instance list"""
+        result = pricing_service.get_spot_prices_batch([], 'us-east-1')
+
+        # Verify empty result
+        assert result == {}
+
+    def test_get_spot_prices_batch_generic_exception(self, pricing_service, mock_aws_client):
+        """Test batch fetch handles generic exceptions"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.side_effect = Exception("Network error")
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(['t3.micro', 't3.small'], 'us-east-1', max_retries=1)
+
+        # Verify all marked as None after retries exhausted
+        assert result == {'t3.micro': None, 't3.small': None}
+
+    def test_get_spot_prices_batch_mixed_success_failure(self, pricing_service, mock_aws_client):
+        """Test batch fetch with mixed chunk success/failure"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+
+        # Create 75 instance types (2 chunks: 50 + 25)
+        instance_types = [f't3.type{i}' for i in range(75)]
+
+        # First chunk succeeds, second chunk fails
+        def mock_response(InstanceTypes, **kwargs):
+            if len(InstanceTypes) == 50:  # First chunk
+                return {
+                    'SpotPriceHistory': [
+                        {'InstanceType': inst_type, 'SpotPrice': '0.0100', 'Timestamp': now}
+                        for inst_type in InstanceTypes
+                    ]
+                }
+            else:  # Second chunk
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidParameterValue'}},
+                    'describe_spot_price_history'
+                )
+
+        mock_ec2_client.describe_spot_price_history.side_effect = mock_response
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(instance_types, 'us-east-1')
+
+        # Verify first 50 have prices, last 25 are None
+        for i in range(50):
+            assert result[f't3.type{i}'] == 0.0100
+        for i in range(50, 75):
+            assert result[f't3.type{i}'] is None
+
+
+class TestGetSavingsPlanPrice:
+    """Tests for get_savings_plan_price method"""
+
+    def _create_savings_plan_response(self, lease_length="1yr", purchase_option="No Upfront", price="0.0052"):
+        """Helper to create mock savings plan pricing response"""
+        return {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'Reserved': {
+                            'TERM123': {
+                                'termAttributes': {
+                                    'LeaseContractLength': lease_length,
+                                    'PurchaseOption': purchase_option,
+                                },
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'USD': price
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+
+    def test_get_savings_plan_price_cache_hit(self, pricing_service):
+        """Test savings plan price with cache hit"""
+        # Setup cache with existing price
+        pricing_service.cache.get.return_value = 0.0052
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify cache was checked
+        pricing_service.cache.get.assert_called_once_with("us-east-1", "t3.micro", "savings_1yr")
+        # Verify cached price returned
+        assert price == 0.0052
+
+    def test_get_savings_plan_price_cache_miss_1yr(self, pricing_service, mock_aws_client):
+        """Test savings plan price cache miss for 1yr No Upfront"""
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = self._create_savings_plan_response("1yr", "No Upfront", "0.0052")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify price found and cached
+        assert price == 0.0052
+        pricing_service.cache.set.assert_called_once_with("us-east-1", "t3.micro", "savings_1yr", 0.0052)
+
+    def test_get_savings_plan_price_cache_miss_3yr(self, pricing_service, mock_aws_client):
+        """Test savings plan price cache miss for 3yr No Upfront"""
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = self._create_savings_plan_response("3yr", "No Upfront", "0.0039")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "3yr")
+
+        # Verify price found and cached with correct key
+        assert price == 0.0039
+        pricing_service.cache.set.assert_called_once_with("us-east-1", "t3.micro", "savings_3yr", 0.0039)
+
+    def test_get_savings_plan_price_invalid_lease_length(self, pricing_service):
+        """Test savings plan price with invalid lease length"""
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "5yr")
+
+        # Verify None returned for invalid lease
+        assert price is None
+
+    def test_get_savings_plan_price_no_price_list(self, pricing_service, mock_aws_client):
+        """Test savings plan price with empty PriceList"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {}  # No PriceList key
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned and cached
+        assert price is None
+        pricing_service.cache.set.assert_called_once_with("us-east-1", "t3.micro", "savings_1yr", None)
+
+    def test_get_savings_plan_price_no_reserved_terms(self, pricing_service, mock_aws_client):
+        """Test savings plan price with no Reserved terms"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'OnDemand': {}  # Only OnDemand, no Reserved
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned
+        assert price is None
+
+    def test_get_savings_plan_price_multiple_offerings_selects_lowest(self, pricing_service, mock_aws_client):
+        """Test savings plan price selects lowest when multiple offerings exist"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        # Multiple offerings with different prices
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'Reserved': {
+                            'TERM1': {
+                                'termAttributes': {
+                                    'LeaseContractLength': '1yr',
+                                    'PurchaseOption': 'No Upfront',
+                                },
+                                'priceDimensions': {
+                                    'DIM1': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {'USD': '0.0060'}  # Higher
+                                    }
+                                }
+                            },
+                            'TERM2': {
+                                'termAttributes': {
+                                    'LeaseContractLength': '1yr',
+                                    'PurchaseOption': 'No Upfront',
+                                },
+                                'priceDimensions': {
+                                    'DIM2': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {'USD': '0.0052'}  # Lower - should be selected
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify lowest price selected
+        assert price == 0.0052
+
+    def test_get_savings_plan_price_skips_partial_upfront(self, pricing_service, mock_aws_client):
+        """Test savings plan price skips Partial Upfront offerings"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = self._create_savings_plan_response("1yr", "Partial Upfront", "0.0045")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned (Partial Upfront should be skipped)
+        assert price is None
+
+    def test_get_savings_plan_price_skips_all_upfront(self, pricing_service, mock_aws_client):
+        """Test savings plan price skips All Upfront offerings"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = self._create_savings_plan_response("1yr", "All Upfront", "0.0040")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned (All Upfront should be skipped)
+        assert price is None
+
+    def test_get_savings_plan_price_rate_limit_retry(self, pricing_service, mock_aws_client):
+        """Test savings plan price retries on rate limiting"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        from botocore.exceptions import ClientError
+        # First call: rate limit, second call: success
+        mock_pricing_client.get_products.side_effect = [
+            ClientError({'Error': {'Code': 'Throttling'}}, 'GetProducts'),
+            self._create_savings_plan_response("1yr", "No Upfront", "0.0052")
+        ]
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):
+            price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr", max_retries=3)
+
+        # Verify retry succeeded
+        assert price == 0.0052
+        assert mock_pricing_client.get_products.call_count == 2
+
+    def test_get_savings_plan_price_rate_limit_exhausted(self, pricing_service, mock_aws_client):
+        """Test savings plan price returns None when retries exhausted"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        from botocore.exceptions import ClientError
+        # All retries fail
+        mock_pricing_client.get_products.side_effect = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}}, 'GetProducts'
+        )
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):
+            price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr", max_retries=2)
+
+        # Verify None returned after retries exhausted
+        assert price is None
+        assert mock_pricing_client.get_products.call_count == 3  # Initial + 2 retries
+
+    def test_get_savings_plan_price_access_denied_raises(self, pricing_service, mock_aws_client):
+        """Test savings plan price raises exception for AccessDeniedException"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        from botocore.exceptions import ClientError
+        mock_pricing_client.get_products.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDeniedException', 'Message': 'Access denied'}},
+            'GetProducts'
+        )
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        # Verify exception is raised
+        with pytest.raises(Exception, match="AWS Pricing API error"):
+            pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+    def test_get_savings_plan_price_other_client_error(self, pricing_service, mock_aws_client):
+        """Test savings plan price returns None for other ClientErrors"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        from botocore.exceptions import ClientError
+        mock_pricing_client.get_products.side_effect = ClientError(
+            {'Error': {'Code': 'InvalidParameterValue'}}, 'GetProducts'
+        )
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned (no retry for non-rate-limit errors)
+        assert price is None
+        assert mock_pricing_client.get_products.call_count == 1
+
+    def test_get_savings_plan_price_generic_exception_retry(self, pricing_service, mock_aws_client):
+        """Test savings plan price retries generic exceptions"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        # First call: exception, second call: success
+        mock_pricing_client.get_products.side_effect = [
+            Exception("Network error"),
+            self._create_savings_plan_response("1yr", "No Upfront", "0.0052")
+        ]
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):
+            price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr", max_retries=3)
+
+        # Verify retry succeeded
+        assert price == 0.0052
+        assert mock_pricing_client.get_products.call_count == 2
+
+
+class TestCurrencyConversion:
+    """Tests for JPY to USD currency conversion"""
+
+    def test_on_demand_jpy_to_usd_conversion(self, pricing_service, mock_aws_client):
+        """Test on-demand pricing converts JPY to USD"""
+        mock_pricing_client = MagicMock()
+        # Return JPY price only (no USD)
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {'attributes': {'instanceType': 't3.micro'}},
+                    'terms': {
+                        'OnDemand': {
+                            'TERM123': {
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'JPY': '15.6'  # 150 JPY = 1 USD, so 15.6 JPY = 0.104 USD
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "ap-northeast-1")
+
+        # Verify JPY converted to USD: 15.6 / 150 = 0.104
+        assert price == 0.104
+
+    def test_on_demand_prefers_usd_over_jpy(self, pricing_service, mock_aws_client):
+        """Test on-demand pricing prefers USD when both USD and JPY exist"""
+        mock_pricing_client = MagicMock()
+        # Return both USD and JPY prices
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {'attributes': {'instanceType': 't3.micro'}},
+                    'terms': {
+                        'OnDemand': {
+                            'TERM123': {
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'USD': '0.0104',  # Should use this
+                                            'JPY': '15.6'     # Should ignore this
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "ap-northeast-1")
+
+        # Verify USD price used, not JPY conversion
+        assert price == 0.0104
+
+    def test_on_demand_jpy_invalid_value(self, pricing_service, mock_aws_client):
+        """Test on-demand pricing handles invalid JPY values gracefully"""
+        mock_pricing_client = MagicMock()
+        # Return invalid JPY price
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {'attributes': {'instanceType': 't3.micro'}},
+                    'terms': {
+                        'OnDemand': {
+                            'TERM123': {
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'JPY': 'invalid'  # Invalid value
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "ap-northeast-1")
+
+        # Verify None returned for invalid JPY
+        assert price is None
+
+    def test_reserved_prefers_usd_over_jpy(self, pricing_service, mock_aws_client):
+        """Test reserved instance pricing prefers USD when both exist"""
+        mock_pricing_client = MagicMock()
+        # Return both USD and JPY
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {
+                        'attributes': {
+                            'location': 'Asia Pacific (Tokyo)',
+                            'instanceType': 't3.micro'
+                        }
+                    },
+                    'terms': {
+                        'Reserved': {
+                            'TERM123': {
+                                'termAttributes': {
+                                    'LeaseContractLength': '1yr',
+                                    'PurchaseOption': 'No Upfront',
+                                    'OfferingClass': 'standard'
+                                },
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'USD': '0.0052',  # Should use this
+                                            'JPY': '7.8'      # Should ignore this
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "t3.micro", "ap-northeast-1", "1yr", "no_upfront"
+        )
+
+        # Verify USD used, not JPY conversion
+        assert price == 0.0052
+
+    def test_jpy_zero_value_skipped(self, pricing_service, mock_aws_client):
+        """Test zero JPY values are skipped"""
+        mock_pricing_client = MagicMock()
+        # Return zero JPY price
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {'attributes': {'instanceType': 't3.micro'}},
+                    'terms': {
+                        'OnDemand': {
+                            'TERM123': {
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'JPY': '0.0'  # Zero should be skipped
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "ap-northeast-1")
+
+        # Verify None returned for zero JPY
+        assert price is None
+
+
+class TestPrivateHelperMethods:
+    """Tests for private helper methods in PricingService"""
+
+    def test_get_pricing_region(self, pricing_service):
+        """Test _get_pricing_region maps region codes correctly"""
+        # Test common region mappings
+        assert pricing_service._get_pricing_region("us-east-1") == "US East (N. Virginia)"
+        assert pricing_service._get_pricing_region("us-west-2") == "US West (Oregon)"
+        assert pricing_service._get_pricing_region("eu-west-1") == "EU (Ireland)"
+        assert pricing_service._get_pricing_region("ap-northeast-1") == "Asia Pacific (Tokyo)"
+
+    def test_build_ec2_filters(self, pricing_service):
+        """Test _build_ec2_filters creates correct filter structure"""
+        filters = pricing_service._build_ec2_filters("t3.micro", "US East (N. Virginia)")
+
+        # Verify filter structure
+        assert len(filters) == 6
+        assert {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': 'US East (N. Virginia)'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': 't3.micro'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'} in filters
+
+    def test_parse_hourly_price_usd(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions with USD price"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hrs',
+                'pricePerUnit': {
+                    'USD': '0.0104'
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.0104
+
+    def test_parse_hourly_price_jpy_conversion(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions converts JPY to USD"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hrs',
+                'pricePerUnit': {
+                    'JPY': '15.6'  # 15.6 / 150 = 0.104
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.104
+
+    def test_parse_hourly_price_prefers_usd(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions prefers USD over JPY"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hrs',
+                'pricePerUnit': {
+                    'USD': '0.0104',  # Should use this
+                    'JPY': '15.6'     # Should ignore this
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.0104
+
+    def test_parse_hourly_price_hr_unit(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions accepts 'Hr' unit"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hr',  # Singular form
+                'pricePerUnit': {
+                    'USD': '0.0208'
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.0208
+
+    def test_parse_hourly_price_empty_unit(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions accepts empty unit"""
+        dimensions = {
+            'DIM123': {
+                'unit': '',  # Empty unit
+                'pricePerUnit': {
+                    'USD': '0.0416'
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.0416
+
+    def test_parse_hourly_price_zero_skipped(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions skips zero prices"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hrs',
+                'pricePerUnit': {
+                    'USD': '0.0'  # Zero price should be skipped
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price is None
+
+
+    def test_parse_hourly_price_no_match(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions returns None when no match"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'GB',  # Wrong unit
+                'pricePerUnit': {
+                    'USD': '0.0104'
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price is None
+
+    def test_handle_throttling_should_retry(self, pricing_service):
+        """Test _handle_throttling returns True for throttling within retry limit"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}},
+            'GetProducts'
+        )
+
+        with patch('time.sleep'):
+            should_retry = pricing_service._handle_throttling(
+                attempt=1, max_retries=3, error=error
+            )
+
+        assert should_retry is True
+
+    def test_handle_throttling_exhausted(self, pricing_service):
+        """Test _handle_throttling returns False when retries exhausted"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}},
+            'GetProducts'
+        )
+
+        should_retry = pricing_service._handle_throttling(
+            attempt=3, max_retries=3, error=error
+        )
+
+        assert should_retry is False
+
+    def test_handle_throttling_non_throttling_error(self, pricing_service):
+        """Test _handle_throttling returns False for non-throttling errors"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'InvalidParameterValue'}},
+            'GetProducts'
+        )
+
+        should_retry = pricing_service._handle_throttling(
+            attempt=1, max_retries=3, error=error
+        )
+
+        assert should_retry is False
+
+    def test_handle_throttling_exponential_backoff(self, pricing_service):
+        """Test _handle_throttling uses exponential backoff"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}},
+            'GetProducts'
+        )
+
+        with patch('time.sleep') as mock_sleep:
+            # First attempt: 2^1 = 2 seconds
+            pricing_service._handle_throttling(attempt=1, max_retries=3, error=error)
+            mock_sleep.assert_called_with(2)
+
+            # Second attempt: 2^2 = 4 seconds
+            pricing_service._handle_throttling(attempt=2, max_retries=3, error=error)
+            mock_sleep.assert_called_with(4)
+
+    def test_handle_throttling_max_wait_time(self, pricing_service):
+        """Test _handle_throttling caps wait time at 30 seconds"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}},
+            'GetProducts'
+        )
+
+        with patch('time.sleep') as mock_sleep:
+            # Large attempt number: 2^10 = 1024, but should cap at 30
+            pricing_service._handle_throttling(attempt=10, max_retries=15, error=error)
+            mock_sleep.assert_called_with(30)
