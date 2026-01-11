@@ -717,6 +717,136 @@ async def test_instance_selection(mock_region, mock_instance):
 - Test helper apps named `*TestApp` to avoid pytest collection warnings
 - Never name test classes starting with `Test*` unless they're actual test classes
 
+### Async Service Test Pattern
+
+Async services (like `AsyncAWSClient`) use `AsyncMock` for async context managers and methods. This pattern is used for testing aioboto3 clients and other async AWS interactions.
+
+**When to use this pattern:**
+- Testing async context managers (e.g., `async with client.get_ec2_client()`)
+- Testing async methods that use `await`
+- Mocking aioboto3 session and client behavior
+- Testing async error handling and cleanup
+
+**Example: Testing async client context manager**
+
+```python
+import pytest
+from unittest.mock import Mock, AsyncMock, patch
+
+@pytest.mark.asyncio
+async def test_get_ec2_client_lazy_creation():
+    """Test EC2 client is created on first access"""
+    # Create mock client context manager
+    mock_ec2_client = AsyncMock()
+    mock_client_cm = AsyncMock()
+    mock_client_cm.__aenter__.return_value = mock_ec2_client
+
+    # Create mock session
+    mock_session = Mock()
+    mock_session.client.return_value = mock_client_cm
+
+    client = AsyncAWSClient(region="us-east-1")
+
+    # Patch _get_session to return our mock
+    with patch.object(client, '_get_session', return_value=mock_session):
+        # Initially None
+        assert client._ec2_client is None
+
+        # Access creates client
+        async with client.get_ec2_client() as ec2:
+            assert ec2 == mock_ec2_client
+            assert client._ec2_client == mock_ec2_client
+
+        # Verify session.client was called
+        mock_session.client.assert_called_once()
+        call_args = mock_session.client.call_args
+        assert call_args[0][0] == "ec2"
+        assert call_args[1]["region_name"] == "us-east-1"
+```
+
+**Example: Testing async methods with error handling**
+
+```python
+@pytest.mark.asyncio
+async def test_connection_failure_client_error():
+    """Test connection test with ClientError"""
+    mock_ec2_client = AsyncMock()
+    mock_ec2_client.describe_regions.side_effect = ClientError(
+        {"Error": {"Code": "UnauthorizedOperation"}}, "DescribeRegions"
+    )
+
+    mock_client_cm = AsyncMock()
+    mock_client_cm.__aenter__.return_value = mock_ec2_client
+    mock_client_cm.__aexit__.return_value = None
+
+    mock_session = Mock()
+    mock_session.client.return_value = mock_client_cm
+
+    client = AsyncAWSClient(region="us-east-1")
+
+    with patch.object(client, '_get_session', return_value=mock_session):
+        result = await client.test_connection()
+
+    assert result is False
+```
+
+**Example: Testing client recreation after error**
+
+```python
+@pytest.mark.asyncio
+async def test_get_ec2_client_recreates_after_error():
+    """Test EC2 client is recreated after an error"""
+    # First client - will error
+    mock_ec2_client_1 = AsyncMock()
+    mock_ec2_client_1.describe_instance_types.side_effect = ClientError(
+        {"Error": {"Code": "Throttling"}}, "DescribeInstanceTypes"
+    )
+
+    # Second client - will succeed
+    mock_ec2_client_2 = AsyncMock()
+
+    mock_client_cm_1 = AsyncMock()
+    mock_client_cm_1.__aenter__.return_value = mock_ec2_client_1
+
+    mock_client_cm_2 = AsyncMock()
+    mock_client_cm_2.__aenter__.return_value = mock_ec2_client_2
+
+    mock_session = Mock()
+    mock_session.client.side_effect = [mock_client_cm_1, mock_client_cm_2]
+
+    client = AsyncAWSClient(region="us-east-1")
+
+    with patch.object(client, '_get_session', return_value=mock_session):
+        # First access - triggers error
+        with pytest.raises(ClientError):
+            async with client.get_ec2_client() as ec2:
+                await ec2.describe_instance_types()
+
+        # Client should be None after error
+        assert client._ec2_client is None
+
+        # Second access - creates new client
+        async with client.get_ec2_client() as ec2:
+            assert ec2 == mock_ec2_client_2
+
+        # Verify client was created twice
+        assert mock_session.client.call_count == 2
+```
+
+**Key aspects:**
+1. **AsyncMock for async functions**: Use `AsyncMock()` for async context managers and methods
+2. **Context manager protocol**: Mock `__aenter__` to return client, `__aexit__` for cleanup
+3. **@pytest.mark.asyncio**: Required decorator for async test functions
+4. **patch.object for instance methods**: Use `patch.object(instance, method_name)` instead of string path
+5. **Error recovery**: Test that clients are recreated after errors (set to None, then recreated)
+6. **Configuration verification**: Check that timeouts, regions, and pool settings are passed correctly
+
+**Common pitfalls:**
+- Forgetting `@pytest.mark.asyncio` decorator (test will fail silently)
+- Using regular `Mock()` instead of `AsyncMock()` for async functions
+- Not mocking both `__aenter__` and `__aexit__` for context managers
+- Not using `await` when calling async methods in tests
+
 ### Testing Services
 
 When adding new services or modifying existing ones, always add comprehensive tests:
