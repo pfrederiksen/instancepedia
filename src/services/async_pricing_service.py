@@ -16,6 +16,7 @@ from src.services.pricing_service import SpotPriceHistory
 from src.debug import DebugLog
 from src.cache import get_pricing_cache
 from src.config.settings import Settings
+from src.models.region_mapping import get_pricing_region
 
 logger = logging.getLogger("instancepedia")
 
@@ -110,44 +111,6 @@ class PricingMetrics:
         )
 
 
-# Region code to Pricing API location name mapping
-REGION_MAP = {
-    'us-east-1': 'US East (N. Virginia)',
-    'us-east-2': 'US East (Ohio)',
-    'us-east-3': 'US East (Columbus)',
-    'us-west-1': 'US West (N. California)',
-    'us-west-2': 'US West (Oregon)',
-    'us-west-3': 'US West (Phoenix)',
-    'us-west-4': 'US West (Las Vegas)',
-    'af-south-1': 'Africa (Cape Town)',
-    'ap-east-1': 'Asia Pacific (Hong Kong)',
-    'ap-south-1': 'Asia Pacific (Mumbai)',
-    'ap-south-2': 'Asia Pacific (Hyderabad)',
-    'ap-northeast-1': 'Asia Pacific (Tokyo)',
-    'ap-northeast-2': 'Asia Pacific (Seoul)',
-    'ap-northeast-3': 'Asia Pacific (Osaka)',
-    'ap-southeast-1': 'Asia Pacific (Singapore)',
-    'ap-southeast-2': 'Asia Pacific (Sydney)',
-    'ap-southeast-3': 'Asia Pacific (Jakarta)',
-    'ap-southeast-4': 'Asia Pacific (Melbourne)',
-    'ap-southeast-5': 'Asia Pacific (Osaka)',
-    'ca-central-1': 'Canada (Central)',
-    'eu-central-1': 'EU (Frankfurt)',
-    'eu-central-2': 'EU (Zurich)',
-    'eu-west-1': 'EU (Ireland)',
-    'eu-west-2': 'EU (London)',
-    'eu-west-3': 'EU (Paris)',
-    'eu-north-1': 'EU (Stockholm)',
-    'eu-north-2': 'EU (Warsaw)',
-    'eu-south-1': 'EU (Milan)',
-    'eu-south-2': 'EU (Spain)',
-    'me-south-1': 'Middle East (Bahrain)',
-    'me-central-1': 'Middle East (UAE)',
-    'il-central-1': 'Israel (Tel Aviv)',
-    'sa-east-1': 'South America (Sao Paulo)',
-}
-
-
 class AsyncPricingService:
     """Async service for fetching EC2 instance pricing"""
 
@@ -165,12 +128,9 @@ class AsyncPricingService:
         self.cache = get_pricing_cache() if use_cache else None
         self.settings = settings or Settings()
 
-    def _get_pricing_region(self, region: str) -> Optional[str]:
+    def _get_pricing_region(self, region: str) -> str:
         """Map AWS region code to Pricing API location name"""
-        pricing_region = REGION_MAP.get(region)
-        if not pricing_region:
-            DebugLog.log(f"Warning: Region {region} not in pricing region map")
-        return pricing_region
+        return get_pricing_region(region)
 
     def _build_ec2_filters(self, instance_type: str, pricing_region: str) -> List[Dict]:
         """Build common EC2 pricing filters for Pricing API queries"""
