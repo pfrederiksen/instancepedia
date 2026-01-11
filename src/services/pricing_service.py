@@ -3,7 +3,7 @@
 from typing import Optional, Dict, List, Tuple
 from botocore.exceptions import ClientError, BotoCoreError
 from decimal import Decimal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 import json
 import time
@@ -509,7 +509,7 @@ class PricingService:
         """
         try:
             # Calculate start time
-            start_time = datetime.utcnow() - timedelta(days=days)
+            start_time = datetime.now(timezone.utc) - timedelta(days=days)
 
             # Fetch historical spot prices
             response = self.aws_client.ec2_client.describe_spot_price_history(

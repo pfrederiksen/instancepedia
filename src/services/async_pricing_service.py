@@ -6,7 +6,7 @@ import logging
 import time
 import statistics
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Callable
 from decimal import Decimal
 from botocore.exceptions import ClientError, BotoCoreError
@@ -374,7 +374,7 @@ class AsyncPricingService:
         """
         try:
             # Calculate start time
-            start_time = datetime.utcnow() - timedelta(days=days)
+            start_time = datetime.now(timezone.utc) - timedelta(days=days)
 
             # Fetch historical spot prices
             async with self.aws_client.get_ec2_client() as ec2:
