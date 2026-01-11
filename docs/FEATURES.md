@@ -124,9 +124,9 @@ Press `S` to cycle through sort options:
 
 Compare up to 2 instances side-by-side:
 
-1. Navigate to first instance, press `M` to mark
-2. Navigate to second instance, press `M` to mark
-3. Press `C` to view comparison
+1. Navigate to first instance, press `C` to mark
+2. Navigate to second instance, press `C` to mark
+3. Press `V` to view comparison
 
 **Comparison shows**:
 - All specifications side-by-side

@@ -64,10 +64,10 @@ You'll see only instances matching your criteria.
 ### Your First Comparison
 
 1. Navigate to an instance (e.g., `t3.medium`)
-2. Press `M` to mark it
+2. Press `C` to mark it
 3. Navigate to another instance (e.g., `t3a.medium`)
-4. Press `M` to mark it
-5. Press `C` to view side-by-side comparison
+4. Press `C` to mark it
+5. Press `V` to view side-by-side comparison
 
 ## Common CLI Commands
 

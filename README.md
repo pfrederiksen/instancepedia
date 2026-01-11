@@ -60,7 +60,7 @@ instancepedia list --max-vcpu 2 --max-memory 4 --sort price | head -20
 
 ### Compare Instance Types
 
-**TUI**: Navigate to an instance, press `M` to mark it, repeat for second instance, press `C` to compare.
+**TUI**: Navigate to an instance, press `C` to mark it, repeat for second instance, press `V` to compare.
 
 **CLI**:
 ```bash
@@ -195,7 +195,7 @@ instancepedia
 
 # 3. Sort by price (press S repeatedly until "Price (Low-High)")
 
-# 4. Compare top candidates (mark with M, view with C)
+# 4. Compare top candidates (mark with C, view with V)
 
 # 5. Check cost optimization (press O on selected instance)
 
@@ -281,8 +281,8 @@ Essential shortcuts (press `?` for complete list):
 | `F` | Open filter modal |
 | `S` | Cycle sort order |
 | `Enter` | View instance details |
-| `M` | Mark instance for comparison |
-| `C` | View comparison (2 marked instances) |
+| `C` | Mark instance for comparison |
+| `V` | View comparison (2 marked instances) |
 | `P` | Spot price history |
 | `O` | Cost optimization recommendations |
 | `R` | Multi-region pricing comparison |

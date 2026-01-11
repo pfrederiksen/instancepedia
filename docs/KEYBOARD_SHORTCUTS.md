@@ -105,8 +105,8 @@ Current sort order is displayed in the status bar at the bottom.
 | Key | Action |
 |-----|--------|
 | `Enter` | View detailed specifications for selected instance |
-| `M` | Mark/unmark instance for comparison (max 2) |
-| `C` | Compare marked instances (requires exactly 2 marked) |
+| `C` | Mark/unmark instance for comparison (max 2) |
+| `V` | Compare marked instances (requires exactly 2 marked) |
 | `P` | View spot price history (30 days) for selected instance |
 | `O` | View cost optimization recommendations for selected instance |
 | `R` | Compare pricing across all regions for selected instance |
@@ -261,7 +261,7 @@ Available from any screen:
 
 1. **Quick Search**: Press `/` and start typing immediately
 2. **Filter First**: Press `F`, set filters, then browse refined results
-3. **Mark and Compare**: Mark 2 similar instances, press `C` to compare side-by-side
+3. **Mark and Compare**: Mark 2 similar instances with `C`, press `V` to compare side-by-side
 4. **Check Spot History**: Before using spot, press `P` to check price stability
 5. **Optimize**: Press `O` to get automated recommendations
 

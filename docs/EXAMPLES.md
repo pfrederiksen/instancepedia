@@ -36,8 +36,8 @@ instancepedia
 5. Click **Apply**
 6. Press `S` until sort is **Price (Low-High)**
 7. Review top candidates (likely t3.xlarge, t3a.xlarge, m5.large)
-8. Press `M` on t3.xlarge and t3a.xlarge to mark them
-9. Press `C` to compare side-by-side
+8. Press `C` on t3.xlarge and t3a.xlarge to mark them
+9. Press `V` to compare side-by-side
 10. Press `O` on preferred instance to see cost optimization options
 11. Press `R` to compare pricing across regions
 
