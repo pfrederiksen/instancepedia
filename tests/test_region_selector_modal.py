@@ -17,16 +17,22 @@ class RegionSelectorModalTestApp(App):
         self.instance_type = instance_type
         self.current_region = current_region
         self.compared_regions = None
+        self.modal_dismissed = False
 
     def on_mount(self):
         def on_compare(regions):
             self.compared_regions = regions
 
-        self.push_screen(RegionSelectorModal(
+        modal = RegionSelectorModal(
             self.instance_type,
             self.current_region,
             on_compare=on_compare
-        ))
+        )
+        self.push_screen(modal, callback=self._on_modal_dismiss)
+
+    def _on_modal_dismiss(self, result):
+        """Track when modal is dismissed"""
+        self.modal_dismissed = True
 
 
 class TestRegionSelectorModal:
@@ -41,7 +47,7 @@ class TestRegionSelectorModal:
 
             # Check title is displayed
             title = app.screen.query_one("#modal-title")
-            assert "Select Regions" in title.renderable
+            assert "Select Regions" in title.content
 
     @pytest.mark.asyncio
     async def test_modal_displays_subtitle(self):
@@ -52,7 +58,7 @@ class TestRegionSelectorModal:
 
             # Check subtitle is displayed
             subtitle = app.screen.query_one("#subtitle")
-            assert "t3.large" in subtitle.renderable
+            assert "t3.large" in subtitle.content
 
     @pytest.mark.asyncio
     async def test_modal_shows_loading_initially(self):
@@ -115,7 +121,7 @@ class TestRegionSelectorModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_q_dismisses(self):
@@ -129,7 +135,7 @@ class TestRegionSelectorModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_fetches_regions_on_mount(self):
@@ -199,7 +205,7 @@ class TestRegionSelectorModal:
                 # Should show error message
                 try:
                     error = app.screen.query_one("#error-message")
-                    assert "error" in error.renderable.lower() or "unable" in error.renderable.lower()
+                    assert "error" in error.content.lower() or "unable" in error.content.lower()
                 except Exception:
                     # It's okay if the widget ID is different
                     pass

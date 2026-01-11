@@ -35,9 +35,15 @@ class PricingHistoryModalTestApp(App):
         super().__init__()
         self.instance_type = instance_type
         self.region = region
+        self.modal_dismissed = False
 
     def on_mount(self):
-        self.push_screen(PricingHistoryModal(self.instance_type, self.region))
+        modal = PricingHistoryModal(self.instance_type, self.region)
+        self.push_screen(modal, callback=self._on_modal_dismiss)
+
+    def _on_modal_dismiss(self, result):
+        """Track when modal is dismissed"""
+        self.modal_dismissed = True
 
 
 class TestPricingHistoryModal:
@@ -52,9 +58,9 @@ class TestPricingHistoryModal:
 
             # Check title is displayed
             header = app.screen.query_one("#history-header")
-            assert "Spot Price History" in header.renderable
-            assert "t3.large" in header.renderable
-            assert "us-east-1" in header.renderable
+            assert "Spot Price History" in header.content
+            assert "t3.large" in header.content
+            assert "us-east-1" in header.content
 
     @pytest.mark.asyncio
     async def test_modal_has_close_button(self):
@@ -79,7 +85,7 @@ class TestPricingHistoryModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_escape_dismisses(self):
@@ -93,7 +99,7 @@ class TestPricingHistoryModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_shows_loading_initially(self):
@@ -104,7 +110,7 @@ class TestPricingHistoryModal:
 
             # Check loading text exists (before fetch completes)
             content = app.screen.query_one("#history-text")
-            assert "Loading" in content.renderable or "spot price history" in content.renderable.lower()
+            assert "Loading" in content.content or "spot price history" in content.content.lower()
 
     @pytest.mark.asyncio
     async def test_modal_fetches_history_on_mount(self):

@@ -43,12 +43,18 @@ class RegionComparisonModalTestApp(App):
         super().__init__()
         self.instance_type = instance_type
         self.regions = regions or ["us-east-1", "us-west-2"]
+        self.modal_dismissed = False
 
     def on_mount(self):
-        self.push_screen(RegionComparisonModal(
+        modal = RegionComparisonModal(
             self.instance_type,
             self.regions
-        ))
+        )
+        self.push_screen(modal, callback=self._on_modal_dismiss)
+
+    def _on_modal_dismiss(self, result):
+        """Track when modal is dismissed"""
+        self.modal_dismissed = True
 
 
 class TestRegionComparisonModal:
@@ -63,8 +69,8 @@ class TestRegionComparisonModal:
 
             # Check title is displayed
             title = app.screen.query_one("#modal-title")
-            assert "Multi-Region Comparison" in title.renderable
-            assert "t3.large" in title.renderable
+            assert "Multi-Region Comparison" in title.content
+            assert "t3.large" in title.content
 
     @pytest.mark.asyncio
     async def test_modal_shows_loading_initially(self):
@@ -89,7 +95,7 @@ class TestRegionComparisonModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_q_dismisses(self):
@@ -103,7 +109,7 @@ class TestRegionComparisonModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_accepts_multiple_regions(self):
@@ -142,7 +148,7 @@ class TestRegionComparisonModal:
                 # Should show error message
                 try:
                     no_data = app.screen.query_one("#no-data")
-                    assert "not available" in no_data.renderable.lower()
+                    assert "not available" in no_data.content.lower()
                 except Exception:
                     # It's okay if the widget ID is different
                     pass

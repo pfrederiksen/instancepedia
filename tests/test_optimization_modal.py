@@ -38,13 +38,19 @@ class OptimizationModalTestApp(App):
         self.instance_type = instance_type
         self.region = region
         self.usage_pattern = usage_pattern
+        self.modal_dismissed = False
 
     def on_mount(self):
-        self.push_screen(OptimizationModal(
+        modal = OptimizationModal(
             self.instance_type,
             self.region,
             self.usage_pattern
-        ))
+        )
+        self.push_screen(modal, callback=self._on_modal_dismiss)
+
+    def _on_modal_dismiss(self, result):
+        """Track when modal is dismissed"""
+        self.modal_dismissed = True
 
 
 class TestOptimizationModal:
@@ -59,8 +65,8 @@ class TestOptimizationModal:
 
             # Check title is displayed
             title = app.screen.query_one("#modal-title")
-            assert "Cost Optimization" in title.renderable
-            assert "t3.large" in title.renderable
+            assert "Cost Optimization" in title.content
+            assert "t3.large" in title.content
 
     @pytest.mark.asyncio
     async def test_modal_shows_loading_initially(self):
@@ -85,7 +91,7 @@ class TestOptimizationModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_q_dismisses(self):
@@ -99,7 +105,7 @@ class TestOptimizationModal:
             await pilot.pause()
 
             # Modal should be dismissed
-            assert not app.screen.is_current
+            assert app.modal_dismissed
 
     @pytest.mark.asyncio
     async def test_modal_handles_instance_not_found(self):
@@ -124,7 +130,7 @@ class TestOptimizationModal:
                 # Should show error message
                 try:
                     no_recs = app.screen.query_one("#no-recommendations")
-                    assert "not found" in no_recs.renderable.lower()
+                    assert "not found" in no_recs.content.lower()
                 except Exception:
                     # It's okay if the widget ID is different, as long as no crash
                     pass
@@ -184,7 +190,7 @@ class TestOptimizationModal:
                         # Should show "no recommendations" message
                         try:
                             no_recs = app.screen.query_one("#no-recommendations")
-                            assert "no" in no_recs.renderable.lower() or "optimized" in no_recs.renderable.lower()
+                            assert "no" in no_recs.content.lower() or "optimized" in no_recs.content.lower()
                         except Exception:
                             # It's okay if not found - modal may have different implementation
                             pass
