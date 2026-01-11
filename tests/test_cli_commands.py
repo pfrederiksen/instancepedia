@@ -545,6 +545,8 @@ class TestCmdCacheStats:
         args = Mock()
         args.format = "table"
         args.debug = False
+        args.output = None
+        args.quiet = False
 
         result = commands.cmd_cache_stats(args)
 
@@ -555,6 +557,7 @@ class TestCmdCacheStats:
     def test_cmd_cache_stats_json_format(self, mock_get_cache):
         """Test cache stats with JSON format"""
         mock_cache = Mock()
+        mock_cache.cache_dir = "/tmp/cache"
         mock_cache.get_stats.return_value = {
             'total_entries': 100,
             'valid_entries': 80,
@@ -568,6 +571,8 @@ class TestCmdCacheStats:
         args = Mock()
         args.format = "json"
         args.debug = False
+        args.output = None
+        args.quiet = False
 
         result = commands.cmd_cache_stats(args)
 
@@ -1048,11 +1053,18 @@ class TestCmdPresetsList:
         mock_service = Mock()
         mock_preset = Mock()
         mock_preset.description = "Test preset"
+        mock_preset.to_dict.return_value = {
+            "name": "test-preset",
+            "description": "Test preset"
+        }
         mock_service.get_all_presets.return_value = {"test-preset": mock_preset}
+        mock_service.is_builtin_preset.return_value = False
         mock_service_class.return_value = mock_service
 
         args = Mock()
         args.format = "table"
+        args.output = None
+        args.quiet = False
 
         result = commands.cmd_presets_list(args)
 
@@ -1086,10 +1098,13 @@ class TestCmdPresetsList:
             "current_generation_only": True,
         }
         mock_service.get_all_presets.return_value = {"web-server": mock_preset}
+        mock_service.is_builtin_preset.return_value = True
         mock_service_class.return_value = mock_service
 
         args = Mock()
         args.format = "json"
+        args.output = None
+        args.quiet = False
 
         result = commands.cmd_presets_list(args)
 

@@ -20,24 +20,17 @@ def cmd_presets_list(args) -> int:
         preset_service = FilterPresetService()
         all_presets = preset_service.get_all_presets()
 
-        if args.format == "json":
-            import json
-            data = {
-                name: preset.to_dict()
-                for name, preset in all_presets.items()
-            }
-            print(json.dumps(data, indent=2))
-        else:
-            # Table format
-            from tabulate import tabulate
-            headers = ["Preset Name", "Description"]
-            rows = []
-            for name, preset in sorted(all_presets.items()):
-                rows.append([name, preset.description or "No description"])
+        # Convert to list format with is_builtin flag
+        presets_list = []
+        for name, preset in sorted(all_presets.items()):
+            preset_dict = preset.to_dict()
+            preset_dict['is_builtin'] = preset_service.is_builtin_preset(name)
+            presets_list.append(preset_dict)
 
-            print("Available Filter Presets:\n")
-            print(tabulate(rows, headers=headers, tablefmt="grid"))
-            print("\nUse 'instancepedia presets apply <preset_name>' to apply a preset")
+        # Format and write output
+        formatter = get_formatter(args.format)
+        output = formatter.format_presets(presets_list)
+        write_output(output, args.output, args.quiet)
 
         return 0
     except Exception as e:
@@ -306,7 +299,8 @@ def cmd_presets_save(args) -> int:
             status(f"Preset '{preset_name}' saved successfully", args.quiet)
             if args.format == "json":
                 import json
-                print(json.dumps(preset.to_dict(), indent=2))
+                output = json.dumps(preset.to_dict(), indent=2)
+                write_output(output, args.output, args.quiet)
             return 0
         else:
             print_error("Failed to save preset")

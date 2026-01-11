@@ -34,6 +34,14 @@ class OutputFormatter:
         """Format comparison between two instance types"""
         raise NotImplementedError
 
+    def format_cache_stats(self, stats: dict, cache_dir: str) -> str:
+        """Format cache statistics"""
+        raise NotImplementedError
+
+    def format_presets(self, presets: list) -> str:
+        """Format filter presets list"""
+        raise NotImplementedError
+
 
 class TableFormatter(OutputFormatter):
     """Table formatter for human-readable output"""
@@ -348,7 +356,44 @@ class TableFormatter(OutputFormatter):
         rows.append(["Free Tier Eligible", free1, free2])
         
         return tabulate(rows, headers=headers, tablefmt="grid")
-    
+
+    def format_cache_stats(self, stats: dict, cache_dir: str) -> str:
+        """Format cache statistics as a table"""
+        lines = []
+        lines.append("\nCache Statistics:")
+        lines.append(f"  Location: {cache_dir}")
+        lines.append(f"  Total entries: {stats['total_entries']}")
+        lines.append(f"  Valid entries: {stats['valid_entries']}")
+        lines.append(f"  Expired entries: {stats['expired_entries']}")
+        lines.append(f"  Cache size: {stats['cache_size_bytes']:,} bytes")
+        if stats.get('oldest_entry'):
+            lines.append(f"  Oldest entry: {stats['oldest_entry']}")
+        if stats.get('newest_entry'):
+            lines.append(f"  Newest entry: {stats['newest_entry']}")
+        lines.append("")
+        return "\n".join(lines)
+
+    def format_presets(self, presets: list) -> str:
+        """Format filter presets list as a table"""
+        if not presets:
+            return "No filter presets available"
+
+        # Build table rows
+        rows = []
+        for preset in presets:
+            preset_type = "Built-in" if preset.get('is_builtin', False) else "Custom"
+            rows.append([
+                preset['name'],
+                preset_type,
+                preset.get('description', '')
+            ])
+
+        headers = ["Name", "Type", "Description"]
+        output = "\nAvailable Filter Presets:\n\n"
+        output += tabulate(rows, headers=headers, tablefmt="grid")
+        output += "\n\nUse 'instancepedia presets apply <preset_name>' to apply a preset"
+        return output
+
     def _is_free_tier(self, instance_type: str) -> bool:
         """Check if instance type is free tier eligible"""
         from src.services.free_tier_service import FreeTierService
@@ -408,7 +453,19 @@ class JSONFormatter(OutputFormatter):
             }
         }
         return json.dumps(data, indent=2)
-    
+
+    def format_cache_stats(self, stats: dict, cache_dir: str) -> str:
+        """Format cache statistics as JSON"""
+        data = {
+            "cache_dir": cache_dir,
+            "stats": stats
+        }
+        return json.dumps(data, indent=2)
+
+    def format_presets(self, presets: list) -> str:
+        """Format filter presets list as JSON"""
+        return json.dumps({"presets": presets}, indent=2)
+
     def _instance_to_dict(self, instance: InstanceType, detailed: bool = False) -> Dict[str, Any]:
         """Convert instance to dictionary"""
         data = {
@@ -566,6 +623,36 @@ class CSVFormatter(OutputFormatter):
         """Format comparison as CSV"""
         # CSV comparison is just two rows
         return self.format_instance_list([instance1, instance2], region)
+
+    def format_cache_stats(self, stats: dict, cache_dir: str) -> str:
+        """Format cache statistics as CSV"""
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Metric", "Value"])
+        writer.writerow(["Cache Directory", cache_dir])
+        writer.writerow(["Total Entries", stats['total_entries']])
+        writer.writerow(["Valid Entries", stats['valid_entries']])
+        writer.writerow(["Expired Entries", stats['expired_entries']])
+        writer.writerow(["Cache Size (bytes)", stats['cache_size_bytes']])
+        if stats.get('oldest_entry'):
+            writer.writerow(["Oldest Entry", stats['oldest_entry']])
+        if stats.get('newest_entry'):
+            writer.writerow(["Newest Entry", stats['newest_entry']])
+        return output.getvalue()
+
+    def format_presets(self, presets: list) -> str:
+        """Format filter presets list as CSV"""
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Name", "Type", "Description"])
+        for preset in presets:
+            preset_type = "Built-in" if preset.get('is_builtin', False) else "Custom"
+            writer.writerow([
+                preset['name'],
+                preset_type,
+                preset.get('description', '')
+            ])
+        return output.getvalue()
 
 
 def get_formatter(format_type: str) -> OutputFormatter:

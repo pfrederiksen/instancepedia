@@ -5,7 +5,7 @@ import logging
 from src.cache import get_pricing_cache
 from src.cli.output import get_formatter
 
-from .base import status, print_error
+from .base import status, print_error, write_output
 
 logger = logging.getLogger("instancepedia")
 
@@ -16,23 +16,10 @@ def cmd_cache_stats(args) -> int:
         cache = get_pricing_cache()
         stats = cache.get_stats()
 
-        # Format output based on format
-        if args.format == "json":
-            import json
-            print(json.dumps(stats, indent=2))
-        else:
-            # Table format
-            print("\nCache Statistics:")
-            print(f"  Location: {cache.cache_dir}")
-            print(f"  Total entries: {stats['total_entries']}")
-            print(f"  Valid entries: {stats['valid_entries']}")
-            print(f"  Expired entries: {stats['expired_entries']}")
-            print(f"  Cache size: {stats['cache_size_bytes']:,} bytes")
-            if stats['oldest_entry']:
-                print(f"  Oldest entry: {stats['oldest_entry']}")
-            if stats['newest_entry']:
-                print(f"  Newest entry: {stats['newest_entry']}")
-            print()
+        # Format and write output
+        formatter = get_formatter(args.format)
+        output = formatter.format_cache_stats(stats, cache.cache_dir)
+        write_output(output, args.output, quiet=args.quiet)
 
         return 0
     except Exception as e:
@@ -78,15 +65,14 @@ def cmd_cache_clear(args) -> int:
         else:
             logger.info(f"Cache cleared: {count} entries (all)")
 
-        if not args.quiet:
-            if region and instance_type:
-                print(f"Cleared {count} cache entries for {instance_type} in {region}")
-            elif region:
-                print(f"Cleared {count} cache entries for region {region}")
-            elif instance_type:
-                print(f"Cleared {count} cache entries for {instance_type}")
-            else:
-                print(f"Cleared {count} cache entries")
+        if region and instance_type:
+            status(f"Cleared {count} cache entries for {instance_type} in {region}", quiet=args.quiet)
+        elif region:
+            status(f"Cleared {count} cache entries for region {region}", quiet=args.quiet)
+        elif instance_type:
+            status(f"Cleared {count} cache entries for {instance_type}", quiet=args.quiet)
+        else:
+            status(f"Cleared {count} cache entries", quiet=args.quiet)
 
         return 0
     except Exception as e:
