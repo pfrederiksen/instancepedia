@@ -1,9 +1,8 @@
 """Region configuration and utilities"""
 
-from typing import List, Dict
 
 # Common AWS regions
-AWS_REGIONS: Dict[str, str] = {
+AWS_REGIONS: dict[str, str] = {
     "us-east-1": "N. Virginia",
     "us-east-2": "Ohio",
     "us-west-1": "N. California",
@@ -39,7 +38,7 @@ AWS_REGIONS: Dict[str, str] = {
     "ap-northeast-3": "Osaka",
 }
 
-def get_region_list() -> List[tuple[str, str]]:
+def get_region_list() -> list[tuple[str, str]]:
     """Get list of regions as (code, name) tuples"""
     return [(code, f"{code} ({name})") for code, name in AWS_REGIONS.items()]
 

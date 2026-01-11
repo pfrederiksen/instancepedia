@@ -9,7 +9,7 @@ Settings are loaded in order of precedence (highest to lowest):
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional, Tuple, Type
+from typing import Any, Type
 
 from pydantic import ConfigDict
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
@@ -34,7 +34,7 @@ class TomlConfigSettingsSource(PydanticBaseSettingsSource):
 
     def get_field_value(
         self, field: Any, field_name: str
-    ) -> Tuple[Any, str, bool]:
+    ) -> tuple[Any, str, bool]:
         """Get field value from TOML config."""
         config_data = self._load_config()
         if field_name in config_data:
@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     )
 
     aws_region: str = "us-east-1"
-    aws_profile: Optional[str] = None
+    aws_profile: str | None = None
 
     # Timeout configuration (in seconds)
     aws_connect_timeout: int = 10  # Connection timeout for AWS APIs
@@ -105,7 +105,7 @@ class Settings(BaseSettings):
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
-    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Customize settings sources order.
 
         Order (highest to lowest priority):

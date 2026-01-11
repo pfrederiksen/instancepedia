@@ -1,6 +1,5 @@
 """Cost optimization recommendations modal for TUI"""
 
-from typing import Optional
 import logging
 
 from textual.app import ComposeResult
@@ -117,7 +116,7 @@ class OptimizationModal(ModalScreen):
         instance_type: str,
         region: str,
         usage_pattern: str = "standard",
-        profile: Optional[str] = None
+        profile: str | None = None
     ):
         """
         Initialize optimization modal
@@ -133,7 +132,7 @@ class OptimizationModal(ModalScreen):
         self._region = region  # Use _region to avoid conflict with Screen.region property
         self.usage_pattern = usage_pattern
         self.profile = profile
-        self.report: Optional[OptimizationReport] = None
+        self.report: OptimizationReport | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the modal UI"""

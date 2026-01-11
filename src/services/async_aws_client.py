@@ -6,7 +6,6 @@ import asyncio
 import atexit
 import gc
 import weakref
-from typing import Optional
 from contextlib import asynccontextmanager, AsyncExitStack
 from botocore.exceptions import ClientError, NoCredentialsError, BotoCoreError
 from botocore.config import Config
@@ -55,7 +54,7 @@ class AsyncAWSClient:
     def __init__(
         self,
         region: str,
-        profile: Optional[str] = None,
+        profile: str | None = None,
         connect_timeout: int = 10,
         read_timeout: int = 60,
         pricing_timeout: int = 90,

@@ -2,7 +2,6 @@
 
 import logging
 import sys
-from typing import Optional, List
 
 from src.services.aws_client import AWSClient
 from src.services.instance_service import InstanceService
@@ -78,7 +77,7 @@ def validate_region(region: str, exit_on_error: bool = True) -> bool:
     return False
 
 
-def validate_regions(regions: List[str], exit_on_error: bool = True) -> List[str]:
+def validate_regions(regions: list[str], exit_on_error: bool = True) -> list[str]:
     """Validate multiple AWS region codes.
 
     Args:
@@ -95,7 +94,7 @@ def validate_regions(regions: List[str], exit_on_error: bool = True) -> List[str
     return invalid
 
 
-def get_aws_client(region: str, profile: Optional[str] = None) -> AWSClient:
+def get_aws_client(region: str, profile: str | None = None) -> AWSClient:
     """Get AWS client with error handling"""
     try:
         return AWSClient(region, profile)
@@ -110,7 +109,7 @@ def get_instance_by_name(
     region: str,
     quiet: bool = False,
     fetch_pricing: bool = False
-) -> Optional[InstanceType]:
+) -> InstanceType | None:
     """
     Fetch instance types and find one by name.
 
@@ -132,10 +131,10 @@ def get_instance_by_name(
 
 def get_instances_by_names(
     aws_client: AWSClient,
-    instance_types: List[str],
+    instance_types: list[str],
     region: str,
     quiet: bool = False
-) -> List[Optional[InstanceType]]:
+) -> list[InstanceType | None]:
     """
     Fetch instance types and find multiple by name.
 
@@ -232,7 +231,7 @@ def safe_write_file(
         raise IOError(f"Failed to write to '{file_path}': {e}")
 
 
-def write_output(output: str, output_path: Optional[str], quiet: bool = False) -> None:
+def write_output(output: str, output_path: str | None, quiet: bool = False) -> None:
     """Write output to file or stdout.
 
     Args:

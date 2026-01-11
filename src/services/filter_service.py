@@ -4,7 +4,7 @@ This module provides shared filtering logic used by both TUI and CLI.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import Any
 from src.models.instance_type import InstanceType
 from src.services.free_tier_service import FreeTierService
 
@@ -32,11 +32,11 @@ class FilterCriteria:
         min_price: Minimum hourly price
         max_price: Maximum hourly price
     """
-    search: Optional[str] = None
-    min_vcpu: Optional[int] = None
-    max_vcpu: Optional[int] = None
-    min_memory_gb: Optional[float] = None
-    max_memory_gb: Optional[float] = None
+    search: str | None = None
+    min_vcpu: int | None = None
+    max_vcpu: int | None = None
+    min_memory_gb: float | None = None
+    max_memory_gb: float | None = None
     gpu_filter: str = "any"
     current_generation: str = "any"
     burstable: str = "any"
@@ -47,10 +47,10 @@ class FilterCriteria:
     family_filter: str = ""
     storage_type: str = "any"
     nvme_support: str = "any"
-    min_price: Optional[float] = None
-    max_price: Optional[float] = None
+    min_price: float | None = None
+    max_price: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "search": self.search,
@@ -73,7 +73,7 @@ class FilterCriteria:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FilterCriteria":
+    def from_dict(cls, data: dict[str, Any]) -> "FilterCriteria":
         """Create from dictionary."""
         return cls(
             search=data.get("search"),
@@ -156,7 +156,7 @@ class FilterCriteria:
         self.max_price = None
 
 
-def _map_cli_storage_type(value: Optional[str]) -> str:
+def _map_cli_storage_type(value: str | None) -> str:
     """Map CLI storage type argument to filter criteria value."""
     if not value:
         return "any"
@@ -167,7 +167,7 @@ def _map_cli_storage_type(value: Optional[str]) -> str:
     return mapping.get(value, "any")
 
 
-def _map_cli_network_performance(value: Optional[str]) -> str:
+def _map_cli_network_performance(value: str | None) -> str:
     """Map CLI network performance argument to filter criteria value."""
     if not value:
         return "any"
@@ -178,9 +178,9 @@ def _map_cli_network_performance(value: Optional[str]) -> str:
 
 
 def apply_filters(
-    instances: List[InstanceType],
+    instances: list[InstanceType],
     criteria: FilterCriteria
-) -> List[InstanceType]:
+) -> list[InstanceType]:
     """Apply all filters to a list of instances.
 
     Args:
@@ -303,7 +303,7 @@ def _is_amd_instance(instance_type: str) -> bool:
     return False
 
 
-def _apply_processor_filter(instances: List[InstanceType], processor_family: str) -> List[InstanceType]:
+def _apply_processor_filter(instances: list[InstanceType], processor_family: str) -> list[InstanceType]:
     """Apply processor family filter."""
     if processor_family == "intel":
         return [
@@ -317,7 +317,7 @@ def _apply_processor_filter(instances: List[InstanceType], processor_family: str
     return instances
 
 
-def _apply_network_filter(instances: List[InstanceType], network_performance: str) -> List[InstanceType]:
+def _apply_network_filter(instances: list[InstanceType], network_performance: str) -> list[InstanceType]:
     """Apply network performance filter."""
     perf_map = {
         "low": ["low", "very low", "up to 5 gigabit"],

@@ -1,7 +1,6 @@
 """Pricing history modal for spot price visualization"""
 
 import logging
-from typing import Optional
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, ScrollableContainer, Horizontal
 from textual.widgets import Static, Button
@@ -75,7 +74,7 @@ class PricingHistoryModal(ModalScreen):
         instance_type: str,
         region: str,
         days: int = 30,
-        profile: Optional[str] = None
+        profile: str | None = None
     ):
         super().__init__()
         DebugLog.log(f"PricingHistoryModal.__init__() for {instance_type} in {region}")
@@ -83,9 +82,9 @@ class PricingHistoryModal(ModalScreen):
         self._region = region
         self.days = days
         self.profile = profile
-        self.history: Optional[SpotPriceHistory] = None
+        self.history: SpotPriceHistory | None = None
         self._settings = Settings()
-        self._fetch_worker: Optional[Worker] = None
+        self._fetch_worker: Worker | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the modal UI"""

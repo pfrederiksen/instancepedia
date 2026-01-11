@@ -4,7 +4,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal, Grid
 from textual.widgets import Static, Input, Select, Button, Checkbox
 from textual.screen import ModalScreen
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any
 
 from src.services.filter_preset_service import FilterPresetService, FilterPreset
 
@@ -13,10 +13,10 @@ class FilterCriteria:
     """Container for filter criteria"""
 
     def __init__(self):
-        self.min_vcpu: Optional[int] = None
-        self.max_vcpu: Optional[int] = None
-        self.min_memory_gb: Optional[float] = None
-        self.max_memory_gb: Optional[float] = None
+        self.min_vcpu: int | None = None
+        self.max_vcpu: int | None = None
+        self.min_memory_gb: float | None = None
+        self.max_memory_gb: float | None = None
         self.gpu_filter: str = "any"  # any, yes, no
         self.current_generation: str = "any"  # any, yes, no
         self.burstable: str = "any"  # any, yes, no
@@ -27,10 +27,10 @@ class FilterCriteria:
         self.family_filter: str = ""  # comma-separated list of families
         self.storage_type: str = "any"  # any, ebs_only, has_instance_store
         self.nvme_support: str = "any"  # any, required, supported, unsupported
-        self.min_price: Optional[float] = None  # minimum hourly price
-        self.max_price: Optional[float] = None  # maximum hourly price
+        self.min_price: float | None = None  # minimum hourly price
+        self.max_price: float | None = None  # maximum hourly price
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary"""
         return {
             "min_vcpu": self.min_vcpu,
@@ -51,7 +51,7 @@ class FilterCriteria:
             "max_price": self.max_price,
         }
 
-    def from_dict(self, data: Dict[str, Any]) -> None:
+    def from_dict(self, data: dict[str, Any]) -> None:
         """Load from dictionary"""
         self.min_vcpu = data.get("min_vcpu")
         self.max_vcpu = data.get("max_vcpu")
@@ -184,13 +184,13 @@ class FilterModal(ModalScreen):
     }
     """
 
-    def __init__(self, current_criteria: Optional[FilterCriteria] = None):
+    def __init__(self, current_criteria: FilterCriteria | None = None):
         super().__init__()
         self.criteria = current_criteria or FilterCriteria()
         self.preset_service = FilterPresetService()
-        self._selected_preset_name: Optional[str] = None
+        self._selected_preset_name: str | None = None
 
-    def _get_preset_options(self) -> List[Tuple[str, str]]:
+    def _get_preset_options(self) -> list[tuple[str, str]]:
         """Get list of preset options for the dropdown"""
         options = [("-- Select Preset --", "")]
         all_presets = self.preset_service.get_all_presets()
@@ -429,7 +429,7 @@ class FilterModal(ModalScreen):
             self._on_save_preset_complete
         )
 
-    def _on_save_preset_complete(self, result: Optional[FilterPreset]) -> None:
+    def _on_save_preset_complete(self, result: FilterPreset | None) -> None:
         """Handle save preset modal result"""
         if result:
             # Refresh the preset dropdown

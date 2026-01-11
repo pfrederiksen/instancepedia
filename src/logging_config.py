@@ -2,7 +2,7 @@
 
 import logging
 import sys
-from typing import Optional, List
+import time
 from pathlib import Path
 
 
@@ -12,7 +12,7 @@ class TUILogHandler(logging.Handler):
 
     def __init__(self):
         super().__init__()
-        self._messages: List[str] = []
+        self._messages: list[str] = []
         self._max_messages: int = 1000
         self._debug_pane = None
 
@@ -35,7 +35,7 @@ class TUILogHandler(logging.Handler):
         except Exception:
             self.handleError(record)
 
-    def get_messages(self) -> List[str]:
+    def get_messages(self) -> list[str]:
         """Get all logged messages"""
         return self._messages.copy()
 
@@ -53,13 +53,29 @@ class TUILogHandler(logging.Handler):
         self._debug_pane = pane
 
 
+class MillisecondFormatter(logging.Formatter):
+    """Custom formatter that includes milliseconds in timestamps"""
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        """Format time with milliseconds"""
+        ct = self.converter(record.created)
+        if datefmt:
+            # Custom handling for milliseconds
+            s = time.strftime(datefmt.replace('.%f', ''), ct)
+            # Add milliseconds
+            return f"{s}.{int(record.msecs):03d}"
+        else:
+            t = time.strftime("%Y-%m-%d %H:%M:%S", ct)
+            return f"{t}.{int(record.msecs):03d}"
+
+
 # Global TUI handler instance
-_tui_handler: Optional[TUILogHandler] = None
+_tui_handler: TUILogHandler | None = None
 
 
 def setup_logging(
     level: str = "INFO",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     enable_tui: bool = False
 ) -> logging.Logger:
     """
@@ -109,24 +125,6 @@ def setup_logging(
         if _tui_handler is None:
             _tui_handler = TUILogHandler()
         _tui_handler.setLevel(logging.DEBUG)
-        tui_formatter = logging.Formatter(
-            fmt="[%(asctime)s] %(levelname)s: %(message)s",
-            datefmt="%H:%M:%S.%f"
-        )
-        # Custom format to trim microseconds to milliseconds
-        class MillisecondFormatter(logging.Formatter):
-            def formatTime(self, record, datefmt=None):
-                ct = self.converter(record.created)
-                if datefmt:
-                    # Custom handling for milliseconds
-                    s = time.strftime(datefmt.replace('.%f', ''), ct)
-                    # Add milliseconds
-                    return f"{s}.{int(record.msecs):03d}"
-                else:
-                    t = time.strftime("%Y-%m-%d %H:%M:%S", ct)
-                    return f"{t}.{int(record.msecs):03d}"
-
-        import time
         tui_formatter_ms = MillisecondFormatter(
             fmt="[%(asctime)s] %(levelname)s: %(message)s",
             datefmt="%H:%M:%S"
@@ -153,7 +151,7 @@ def get_logger(name: str = "instancepedia") -> logging.Logger:
     return logging.getLogger(name)
 
 
-def get_tui_handler() -> Optional[TUILogHandler]:
+def get_tui_handler() -> TUILogHandler | None:
     """Get the global TUI handler instance"""
     return _tui_handler
 

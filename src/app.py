@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import List
 from textual.app import App, ComposeResult
 from textual.screen import Screen
 from textual.containers import Container, Vertical
@@ -381,7 +380,7 @@ class InstancepediaApp(App):
                     from src.models.instance_type import PricingInfo
                     instance_map = {inst.instance_type: inst for inst in self.instance_types}
 
-                    def on_price(inst_type_name: str, price: Optional[float]):
+                    def on_price(inst_type_name: str, price: float | None):
                         """Called when each price is fetched - update instance immediately"""
                         inst = instance_map.get(inst_type_name)
                         if inst:
@@ -491,7 +490,7 @@ class InstancepediaApp(App):
         self._pricing_worker = worker
         DebugLog.log(f"Pricing worker started: {worker}")
 
-    def _retry_pricing_for_instances(self, instance_list: InstanceList, failed_instances: List[InstanceType]) -> None:
+    def _retry_pricing_for_instances(self, instance_list: InstanceList, failed_instances: list[InstanceType]) -> None:
         """Retry pricing fetch for specific instances that failed
 
         Args:

@@ -1,6 +1,5 @@
 """Instance type data models"""
 
-from typing import List, Optional
 from dataclasses import dataclass
 
 
@@ -8,8 +7,8 @@ from dataclasses import dataclass
 class VCpuInfo:
     """vCPU information"""
     default_vcpus: int
-    default_cores: Optional[int] = None
-    default_threads_per_core: Optional[int] = None
+    default_cores: int | None = None
+    default_threads_per_core: int | None = None
 
 
 @dataclass
@@ -30,8 +29,8 @@ class NetworkInfo:
     maximum_network_interfaces: int
     maximum_ipv4_addresses_per_interface: int
     maximum_ipv6_addresses_per_interface: int
-    baseline_bandwidth_in_gbps: Optional[float] = None
-    peak_bandwidth_in_gbps: Optional[float] = None
+    baseline_bandwidth_in_gbps: float | None = None
+    peak_bandwidth_in_gbps: float | None = None
 
     def format_bandwidth(self) -> str:
         """Format bandwidth information for display"""
@@ -51,15 +50,15 @@ class NetworkInfo:
 @dataclass
 class ProcessorInfo:
     """Processor information"""
-    supported_architectures: List[str]
-    sustained_clock_speed_in_ghz: Optional[float] = None
+    supported_architectures: list[str]
+    sustained_clock_speed_in_ghz: float | None = None
 
 
 @dataclass
 class EbsInfo:
     """EBS information"""
     ebs_optimized_support: str
-    ebs_optimized_info: Optional[dict] = None
+    ebs_optimized_info: dict | None = None
 
     @property
     def is_ebs_optimized(self) -> bool:
@@ -70,9 +69,9 @@ class EbsInfo:
 @dataclass
 class InstanceStorageInfo:
     """Instance storage information"""
-    total_size_in_gb: Optional[int] = None
-    disks: Optional[List[dict]] = None
-    nvme_support: Optional[str] = None
+    total_size_in_gb: int | None = None
+    disks: list[dict] | None = None
+    nvme_support: str | None = None
 
 
 @dataclass
@@ -81,10 +80,10 @@ class GpuDevice:
     name: str
     manufacturer: str
     count: int
-    memory_in_mib: Optional[int] = None
+    memory_in_mib: int | None = None
 
     @property
-    def memory_in_gb(self) -> Optional[float]:
+    def memory_in_gb(self) -> float | None:
         """Convert GPU memory from MiB to GB"""
         if self.memory_in_mib is None:
             return None
@@ -94,8 +93,8 @@ class GpuDevice:
 @dataclass
 class GpuInfo:
     """GPU/Accelerator information"""
-    gpus: List[GpuDevice]
-    total_gpu_memory_in_mib: Optional[int] = None
+    gpus: list[GpuDevice]
+    total_gpu_memory_in_mib: int | None = None
 
     @property
     def total_gpu_count(self) -> int:
@@ -103,7 +102,7 @@ class GpuInfo:
         return sum(gpu.count for gpu in self.gpus)
 
     @property
-    def total_gpu_memory_in_gb(self) -> Optional[float]:
+    def total_gpu_memory_in_gb(self) -> float | None:
         """Total GPU memory in GB"""
         if self.total_gpu_memory_in_mib is None:
             return None
@@ -137,18 +136,18 @@ class GpuInfo:
 @dataclass
 class PricingInfo:
     """Pricing information"""
-    on_demand_price: Optional[float] = None  # Price per hour in USD
-    spot_price: Optional[float] = None  # Current spot price per hour in USD
-    savings_plan_1yr_no_upfront: Optional[float] = None  # 1-year savings plan, no upfront
-    savings_plan_3yr_no_upfront: Optional[float] = None  # 3-year savings plan, no upfront
+    on_demand_price: float | None = None  # Price per hour in USD
+    spot_price: float | None = None  # Current spot price per hour in USD
+    savings_plan_1yr_no_upfront: float | None = None  # 1-year savings plan, no upfront
+    savings_plan_3yr_no_upfront: float | None = None  # 3-year savings plan, no upfront
 
     # Reserved Instance pricing (Standard, effective hourly rates)
-    ri_1yr_no_upfront: Optional[float] = None  # 1-year RI, no upfront
-    ri_1yr_partial_upfront: Optional[float] = None  # 1-year RI, partial upfront
-    ri_1yr_all_upfront: Optional[float] = None  # 1-year RI, all upfront
-    ri_3yr_no_upfront: Optional[float] = None  # 3-year RI, no upfront
-    ri_3yr_partial_upfront: Optional[float] = None  # 3-year RI, partial upfront
-    ri_3yr_all_upfront: Optional[float] = None  # 3-year RI, all upfront
+    ri_1yr_no_upfront: float | None = None  # 1-year RI, no upfront
+    ri_1yr_partial_upfront: float | None = None  # 1-year RI, partial upfront
+    ri_1yr_all_upfront: float | None = None  # 1-year RI, all upfront
+    ri_3yr_no_upfront: float | None = None  # 3-year RI, no upfront
+    ri_3yr_partial_upfront: float | None = None  # 3-year RI, partial upfront
+    ri_3yr_all_upfront: float | None = None  # 3-year RI, all upfront
 
     def format_on_demand(self) -> str:
         """Format on-demand price for display"""
@@ -210,7 +209,7 @@ class PricingInfo:
             return "N/A"
         return f"${self.ri_3yr_all_upfront:.4f}/hr"
 
-    def calculate_savings_percentage(self, price_type: str = "1yr") -> Optional[float]:
+    def calculate_savings_percentage(self, price_type: str = "1yr") -> float | None:
         """Calculate savings percentage compared to on-demand
 
         Args:
@@ -244,13 +243,13 @@ class PricingInfo:
 
         return None
 
-    def calculate_monthly_cost(self, hours_per_month: float = 730) -> Optional[float]:
+    def calculate_monthly_cost(self, hours_per_month: float = 730) -> float | None:
         """Calculate monthly cost based on hours per month (default 730 = 24*365/12)"""
         if self.on_demand_price is None:
             return None
         return self.on_demand_price * hours_per_month
 
-    def calculate_annual_cost(self) -> Optional[float]:
+    def calculate_annual_cost(self) -> float | None:
         """Calculate annual cost"""
         monthly = self.calculate_monthly_cost()
         if monthly is None:
@@ -267,15 +266,15 @@ class InstanceType:
     network_info: NetworkInfo
     processor_info: ProcessorInfo
     ebs_info: EbsInfo
-    instance_storage_info: Optional[InstanceStorageInfo] = None
-    gpu_info: Optional[GpuInfo] = None
+    instance_storage_info: InstanceStorageInfo | None = None
+    gpu_info: GpuInfo | None = None
     current_generation: bool = True
     burstable_performance_supported: bool = False
     hibernation_supported: bool = False
-    pricing: Optional[PricingInfo] = None
+    pricing: PricingInfo | None = None
 
     @property
-    def generation(self) -> Optional[int]:
+    def generation(self) -> int | None:
         """Extract generation number from instance type name
 
         Examples:

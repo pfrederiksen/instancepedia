@@ -1,6 +1,5 @@
 """Debug logging utility - backwards compatibility wrapper"""
 
-from typing import List
 import logging
 from src.logging_config import get_logger, get_tui_handler, enable_debug as enable_debug_logging
 from textual.widgets import Static, RichLog
@@ -39,7 +38,7 @@ class DebugLog:
         logger.debug(message)
 
     @classmethod
-    def get_messages(cls) -> List[str]:
+    def get_messages(cls) -> list[str]:
         """Get all debug messages from TUI handler"""
         handler = get_tui_handler()
         if handler:

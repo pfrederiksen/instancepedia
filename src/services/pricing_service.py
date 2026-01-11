@@ -1,6 +1,5 @@
 """EC2 pricing service"""
 
-from typing import Optional, Dict, List, Tuple
 from botocore.exceptions import ClientError, BotoCoreError
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
@@ -25,30 +24,30 @@ class SpotPriceHistory:
     instance_type: str
     region: str
     days: int
-    current_price: Optional[float]
-    min_price: Optional[float]
-    max_price: Optional[float]
-    avg_price: Optional[float]
-    median_price: Optional[float]
-    std_dev: Optional[float]
-    price_points: List[Tuple[datetime, float]]  # List of (timestamp, price) tuples
+    current_price: float | None
+    min_price: float | None
+    max_price: float | None
+    avg_price: float | None
+    median_price: float | None
+    std_dev: float | None
+    price_points: list[tuple[datetime, float]]  # List of (timestamp, price) tuples
 
     @property
-    def volatility_percentage(self) -> Optional[float]:
+    def volatility_percentage(self) -> float | None:
         """Calculate volatility as percentage of average price"""
         if self.avg_price and self.std_dev and self.avg_price > 0:
             return (self.std_dev / self.avg_price) * 100
         return None
 
     @property
-    def price_range(self) -> Optional[float]:
+    def price_range(self) -> float | None:
         """Calculate price range (max - min)"""
         if self.min_price is not None and self.max_price is not None:
             return self.max_price - self.min_price
         return None
 
     @property
-    def savings_vs_current(self) -> Optional[float]:
+    def savings_vs_current(self) -> float | None:
         """Calculate potential savings if buying at min vs current"""
         if self.current_price and self.min_price and self.current_price > 0:
             return ((self.current_price - self.min_price) / self.current_price) * 100
@@ -58,7 +57,7 @@ class SpotPriceHistory:
 class PricingService:
     """Service for fetching EC2 instance pricing"""
 
-    def __init__(self, aws_client: AWSClient, use_cache: bool = True, settings: Optional[Settings] = None):
+    def __init__(self, aws_client: AWSClient, use_cache: bool = True, settings: Settings | None = None):
         """
         Initialize pricing service
 
@@ -76,7 +75,7 @@ class PricingService:
         """Map AWS region code to Pricing API location name"""
         return get_pricing_region(region)
 
-    def _build_ec2_filters(self, instance_type: str, pricing_region: str) -> List[Dict]:
+    def _build_ec2_filters(self, instance_type: str, pricing_region: str) -> list[Dict]:
         """Build common EC2 pricing filters for Pricing API queries"""
         return [
             {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
@@ -87,7 +86,7 @@ class PricingService:
             {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'},
         ]
 
-    def _parse_hourly_price_from_dimensions(self, price_dimensions: Dict) -> Optional[float]:
+    def _parse_hourly_price_from_dimensions(self, price_dimensions: Dict) -> float | None:
         """
         Extract hourly USD price from price dimensions.
 
@@ -137,7 +136,7 @@ class PricingService:
             return True
         return False
 
-    def get_on_demand_price(self, instance_type: str, region: str, max_retries: int = 3) -> Optional[float]:
+    def get_on_demand_price(self, instance_type: str, region: str, max_retries: int = 3) -> float | None:
         """
         Get on-demand price for an instance type in a region
 
@@ -392,7 +391,7 @@ class PricingService:
             self.cache.set(region, instance_type, 'on_demand', None)
         return None
 
-    def get_spot_price(self, instance_type: str, region: str) -> Optional[float]:
+    def get_spot_price(self, instance_type: str, region: str) -> float | None:
         """
         Get current spot price for an instance type in a region
 
@@ -455,7 +454,7 @@ class PricingService:
         instance_type: str,
         region: str,
         days: int = 30
-    ) -> Optional[SpotPriceHistory]:
+    ) -> SpotPriceHistory | None:
         """
         Get historical spot prices for an instance type with statistics
 
@@ -522,7 +521,7 @@ class PricingService:
             logger.debug(f"Error fetching spot price history for {instance_type}: {e}")
             return None
 
-    def get_spot_prices_batch(self, instance_types: List[str], region: str, max_retries: int = 3) -> Dict[str, Optional[float]]:
+    def get_spot_prices_batch(self, instance_types: list[str], region: str, max_retries: int = 3) -> dict[str, float | None]:
         """
         Get current spot prices for multiple instance types in a region (batch)
         
@@ -655,7 +654,7 @@ class PricingService:
         region: str,
         lease_length: str = "1yr",
         max_retries: int = 3
-    ) -> Optional[float]:
+    ) -> float | None:
         """
         Get Savings Plan price for an instance type (Reserved pricing with No Upfront)
 
@@ -798,7 +797,7 @@ class PricingService:
         lease_length: str = "1yr",
         payment_option: str = "no_upfront",
         max_retries: int = 3
-    ) -> Optional[float]:
+    ) -> float | None:
         """
         Get Reserved Instance price for an instance type (Standard RIs only)
 
@@ -949,7 +948,7 @@ class PricingService:
             self.cache.set(region, instance_type, cache_key, None)
         return None
 
-    def get_pricing(self, instance_type: str, region: str) -> Dict[str, Optional[float]]:
+    def get_pricing(self, instance_type: str, region: str) -> dict[str, float | None]:
         """
         Get comprehensive pricing for an instance type
 

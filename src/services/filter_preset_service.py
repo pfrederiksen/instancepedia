@@ -2,7 +2,6 @@
 
 import json
 import os
-from typing import Dict, List, Optional
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
@@ -11,33 +10,33 @@ from dataclasses import dataclass, asdict
 class FilterPreset:
     """Filter preset configuration"""
     name: str
-    description: Optional[str] = None
-    min_vcpu: Optional[int] = None
-    max_vcpu: Optional[int] = None
-    min_memory: Optional[float] = None
-    max_memory: Optional[float] = None
-    has_gpu: Optional[bool] = None
+    description: str | None = None
+    min_vcpu: int | None = None
+    max_vcpu: int | None = None
+    min_memory: float | None = None
+    max_memory: float | None = None
+    has_gpu: bool | None = None
     current_generation_only: bool = False
     burstable_only: bool = False
     free_tier_only: bool = False
-    architecture: Optional[str] = None  # "x86_64" or "arm64"
-    instance_families: Optional[List[str]] = None  # e.g., ["t3", "t4g"]
+    architecture: str | None = None  # "x86_64" or "arm64"
+    instance_families: list[str] | None = None  # e.g., ["t3", "t4g"]
     # Extended filter fields (aligned with FilterCriteria)
-    processor_family: Optional[str] = None  # "intel", "amd", "graviton"
-    network_performance: Optional[str] = None  # "low", "moderate", "high", "very_high"
-    storage_type: Optional[str] = None  # "ebs_only", "has_instance_store"
-    nvme_support: Optional[str] = None  # "required", "supported", "unsupported"
-    min_price: Optional[float] = None  # minimum hourly price
-    max_price: Optional[float] = None  # maximum hourly price
+    processor_family: str | None = None  # "intel", "amd", "graviton"
+    network_performance: str | None = None  # "low", "moderate", "high", "very_high"
+    storage_type: str | None = None  # "ebs_only", "has_instance_store"
+    nvme_support: str | None = None  # "required", "supported", "unsupported"
+    min_price: float | None = None  # minimum hourly price
+    max_price: float | None = None  # maximum hourly price
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization"""
         data = asdict(self)
         # Remove None values and False booleans to keep JSON clean
         return {k: v for k, v in data.items() if v is not None and v is not False}
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "FilterPreset":
+    def from_dict(cls, data: dict) -> "FilterPreset":
         """Create from dictionary"""
         # Filter out unknown fields for forward compatibility
         valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
@@ -98,7 +97,7 @@ class FilterPreset:
         cls,
         criteria: "FilterCriteria",
         name: str,
-        description: Optional[str] = None
+        description: str | None = None
     ) -> "FilterPreset":
         """Create preset from FilterCriteria
 
@@ -225,19 +224,19 @@ class FilterPresetService:
             )
         }
 
-    def get_builtin_presets(self) -> Dict[str, FilterPreset]:
+    def get_builtin_presets(self) -> dict[str, FilterPreset]:
         """Get all built-in presets"""
         return self.builtin_presets.copy()
 
-    def get_builtin_preset(self, name: str) -> Optional[FilterPreset]:
+    def get_builtin_preset(self, name: str) -> FilterPreset | None:
         """Get a specific built-in preset"""
         return self.builtin_presets.get(name)
 
-    def list_builtin_presets(self) -> List[str]:
+    def list_builtin_presets(self) -> list[str]:
         """List names of all built-in presets"""
         return sorted(self.builtin_presets.keys())
 
-    def load_custom_presets(self) -> Dict[str, FilterPreset]:
+    def load_custom_presets(self) -> dict[str, FilterPreset]:
         """Load custom presets from file"""
         if not self.presets_file.exists():
             return {}
@@ -316,20 +315,20 @@ class FilterPresetService:
             print(f"Error deleting preset: {e}")
             return False
 
-    def get_all_presets(self) -> Dict[str, FilterPreset]:
+    def get_all_presets(self) -> dict[str, FilterPreset]:
         """Get all presets (built-in and custom)"""
         all_presets = self.get_builtin_presets()
         all_presets.update(self.load_custom_presets())
         return all_presets
 
-    def get_preset(self, name: str) -> Optional[FilterPreset]:
+    def get_preset(self, name: str) -> FilterPreset | None:
         """Get a preset by name (checks custom first, then built-in)"""
         custom_presets = self.load_custom_presets()
         if name in custom_presets:
             return custom_presets[name]
         return self.builtin_presets.get(name)
 
-    def list_all_preset_names(self) -> List[str]:
+    def list_all_preset_names(self) -> list[str]:
         """List names of all presets"""
         all_presets = self.get_all_presets()
         return sorted(all_presets.keys())

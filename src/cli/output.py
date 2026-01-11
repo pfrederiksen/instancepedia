@@ -4,7 +4,7 @@ import json
 import csv
 import sys
 from io import StringIO
-from typing import List, Dict, Any, Optional
+from typing import Any
 from tabulate import tabulate
 
 from src.models.instance_type import InstanceType
@@ -14,7 +14,7 @@ from src.services.ebs_recommendation_service import EbsRecommendationService
 class OutputFormatter:
     """Base class for output formatters"""
     
-    def format_instance_list(self, instances: List[InstanceType], region: str) -> str:
+    def format_instance_list(self, instances: list[InstanceType], region: str) -> str:
         """Format a list of instance types"""
         raise NotImplementedError
     
@@ -22,7 +22,7 @@ class OutputFormatter:
         """Format detailed information for a single instance type"""
         raise NotImplementedError
     
-    def format_regions(self, regions: List[Dict[str, str]]) -> str:
+    def format_regions(self, regions: list[dict[str, str]]) -> str:
         """Format a list of regions"""
         raise NotImplementedError
     
@@ -49,7 +49,7 @@ class TableFormatter(OutputFormatter):
     def __init__(self):
         self.ebs_recommendation_service = EbsRecommendationService()
 
-    def format_instance_list(self, instances: List[InstanceType], region: str) -> str:
+    def format_instance_list(self, instances: list[InstanceType], region: str) -> str:
         """Format instance list as a table"""
         if not instances:
             return f"No instance types found in region {region}"
@@ -269,7 +269,7 @@ class TableFormatter(OutputFormatter):
         
         return "\n".join(lines)
     
-    def format_regions(self, regions: List[Dict[str, str]]) -> str:
+    def format_regions(self, regions: list[dict[str, str]]) -> str:
         """Format regions list"""
         if not regions:
             return "No regions available"
@@ -403,7 +403,7 @@ class TableFormatter(OutputFormatter):
 class JSONFormatter(OutputFormatter):
     """JSON formatter for machine-readable output"""
     
-    def format_instance_list(self, instances: List[InstanceType], region: str) -> str:
+    def format_instance_list(self, instances: list[InstanceType], region: str) -> str:
         """Format instance list as JSON"""
         data = {
             "region": region,
@@ -420,7 +420,7 @@ class JSONFormatter(OutputFormatter):
         }
         return json.dumps(data, indent=2)
     
-    def format_regions(self, regions: List[Dict[str, str]]) -> str:
+    def format_regions(self, regions: list[dict[str, str]]) -> str:
         """Format regions as JSON"""
         return json.dumps({"regions": regions}, indent=2)
     
@@ -466,7 +466,7 @@ class JSONFormatter(OutputFormatter):
         """Format filter presets list as JSON"""
         return json.dumps({"presets": presets}, indent=2)
 
-    def _instance_to_dict(self, instance: InstanceType, detailed: bool = False) -> Dict[str, Any]:
+    def _instance_to_dict(self, instance: InstanceType, detailed: bool = False) -> dict[str, Any]:
         """Convert instance to dictionary"""
         data = {
             "instance_type": instance.instance_type,
@@ -546,7 +546,7 @@ class JSONFormatter(OutputFormatter):
 class CSVFormatter(OutputFormatter):
     """CSV formatter for spreadsheet import"""
     
-    def format_instance_list(self, instances: List[InstanceType], region: str) -> str:
+    def format_instance_list(self, instances: list[InstanceType], region: str) -> str:
         """Format instance list as CSV"""
         if not instances:
             return ""
@@ -596,7 +596,7 @@ class CSVFormatter(OutputFormatter):
         """CSV doesn't support detailed format well, return summary"""
         return self.format_instance_list([instance], region)
     
-    def format_regions(self, regions: List[Dict[str, str]]) -> str:
+    def format_regions(self, regions: list[dict[str, str]]) -> str:
         """Format regions as CSV"""
         output = StringIO()
         writer = csv.writer(output)

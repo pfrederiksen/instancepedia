@@ -1,6 +1,5 @@
 """Cost optimization service for instance recommendations"""
 
-from typing import List, Optional
 from dataclasses import dataclass
 import logging
 
@@ -14,13 +13,13 @@ class OptimizationRecommendation:
     """Single cost optimization recommendation"""
     recommendation_type: str  # "downsize", "spot", "savings_plan_1yr", "savings_plan_3yr", "ri_1yr", "ri_3yr"
     current_instance: str
-    recommended_instance: Optional[str]  # None for pricing model changes
+    recommended_instance: str | None  # None for pricing model changes
     current_cost_monthly: float
     optimized_cost_monthly: float
     savings_monthly: float
     savings_percentage: float
     reason: str
-    considerations: List[str]  # Potential drawbacks or things to consider
+    considerations: list[str]  # Potential drawbacks or things to consider
 
 
 @dataclass
@@ -29,14 +28,14 @@ class OptimizationReport:
     instance_type: str
     region: str
     current_pricing: PricingInfo
-    recommendations: List[OptimizationRecommendation]
+    recommendations: list[OptimizationRecommendation]
     total_potential_savings: float
 
 
 class OptimizationService:
     """Service for analyzing instances and providing cost optimization recommendations"""
 
-    def __init__(self, instances: List[InstanceType], region: str):
+    def __init__(self, instances: list[InstanceType], region: str):
         """
         Initialize optimization service
 
@@ -124,7 +123,7 @@ class OptimizationService:
     def _find_cheaper_alternatives(
         self,
         instance: InstanceType
-    ) -> List[InstanceType]:
+    ) -> list[InstanceType]:
         """
         Find instances with similar or better specs but lower price
 
@@ -216,7 +215,7 @@ class OptimizationService:
         self,
         instance: InstanceType,
         current_monthly: float
-    ) -> Optional[OptimizationRecommendation]:
+    ) -> OptimizationRecommendation | None:
         """Create spot instance recommendation"""
         if not instance.pricing.spot_price:
             return None
@@ -249,7 +248,7 @@ class OptimizationService:
         current: InstanceType,
         candidate: InstanceType,
         current_monthly: float
-    ) -> Optional[OptimizationRecommendation]:
+    ) -> OptimizationRecommendation | None:
         """Create downsizing recommendation"""
         if not candidate.pricing or not candidate.pricing.on_demand_price:
             return None
@@ -298,7 +297,7 @@ class OptimizationService:
         instance: InstanceType,
         term: str,  # "1yr" or "3yr"
         current_monthly: float
-    ) -> Optional[OptimizationRecommendation]:
+    ) -> OptimizationRecommendation | None:
         """Create savings plan recommendation"""
         if term == "1yr":
             sp_price = instance.pricing.savings_plan_1yr_no_upfront
@@ -341,7 +340,7 @@ class OptimizationService:
         self,
         instance: InstanceType,
         current_monthly: float
-    ) -> List[OptimizationRecommendation]:
+    ) -> list[OptimizationRecommendation]:
         """Create Reserved Instance recommendations"""
         recommendations = []
 

@@ -7,7 +7,7 @@ from textual.containers import Container, Vertical, Horizontal
 from textual.widgets import Tree, Input, Static, Label
 from textual.screen import Screen
 from textual import events
-from typing import List, Optional, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from collections import defaultdict
 
 if TYPE_CHECKING:
@@ -118,7 +118,7 @@ class InstanceList(Screen):
         ("e", "export_instances", "Export to File"),
     ]
 
-    def __init__(self, instance_types: List[InstanceType], region: str):
+    def __init__(self, instance_types: list[InstanceType], region: str):
         super().__init__()
         self.all_instance_types = instance_types
         self.filtered_instance_types = instance_types
@@ -131,16 +131,16 @@ class InstanceList(Screen):
         self._pricing_loaded_count = 0  # Track how many prices have been loaded
         self._pricing_failed_count = 0  # Track how many pricing requests failed
         self._pricing_error_message = None  # Store last pricing error message
-        self._instance_type_map: Dict[str, InstanceType] = {}  # Map instance type names to objects
-        self._family_nodes: List['TreeNode'] = []  # Store family nodes to expand when category expands
+        self._instance_type_map: dict[str, InstanceType] = {}  # Map instance type names to objects
+        self._family_nodes: list['TreeNode'] = []  # Store family nodes to expand when category expands
         self._expanded_categories: set = set()  # Track expanded categories to preserve state
         self._expanded_families: set = set()  # Track expanded families to preserve state
         self._last_pricing_update_count = 0  # Track pricing updates to throttle tree rebuilds
         self._cache_hits = 0  # Track actual cache hits during pricing fetch
         self._total_prices = 0  # Track total prices loaded
-        self._marked_for_comparison: List[InstanceType] = []  # Track instances marked for comparison
+        self._marked_for_comparison: list[InstanceType] = []  # Track instances marked for comparison
         self._settings = Settings()  # Load settings for vim_keys and other options
-        self._family_instances: Dict[str, List[InstanceType]] = {}  # Lazy loading: instances per family
+        self._family_instances: dict[str, list[InstanceType]] = {}  # Lazy loading: instances per family
         self._populated_families: set = set()  # Track which families have had their instances added
 
     def compose(self) -> ComposeResult:
@@ -179,7 +179,7 @@ class InstanceList(Screen):
         # Focus the tree so it can receive keyboard input and scroll
         tree.focus()
 
-    def _group_instances_by_family(self, instances: List[InstanceType]) -> Dict[str, List[InstanceType]]:
+    def _group_instances_by_family(self, instances: list[InstanceType]) -> dict[str, list[InstanceType]]:
         """Group instances by family"""
         families = defaultdict(list)
         for instance in instances:
@@ -296,7 +296,7 @@ class InstanceList(Screen):
         families = self._group_instances_by_family(self.filtered_instance_types)
         
         # Group families by category
-        categories: Dict[str, Dict[str, List[InstanceType]]] = defaultdict(dict)
+        categories: dict[str, dict[str, list[InstanceType]]] = defaultdict(dict)
         for family, instances in families.items():
             category = get_family_category(family)
             categories[category][family] = instances
@@ -801,7 +801,7 @@ class InstanceList(Screen):
 
     def action_show_filters(self) -> None:
         """Show the filter modal"""
-        def handle_filter_result(criteria: Optional[FilterCriteria]) -> None:
+        def handle_filter_result(criteria: FilterCriteria | None) -> None:
             """Handle the filter modal result"""
             if criteria is not None:
                 self.filter_criteria = criteria

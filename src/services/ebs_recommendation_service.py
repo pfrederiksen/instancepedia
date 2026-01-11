@@ -1,6 +1,6 @@
 """EBS volume type recommendation service"""
 
-from typing import Dict, List, Optional
+from typing import Dict
 from dataclasses import dataclass
 
 
@@ -9,10 +9,10 @@ class EbsVolumeRecommendation:
     """EBS volume type recommendation"""
     volume_type: str
     description: str
-    use_cases: List[str]
-    iops_range: Optional[str] = None
-    throughput_range: Optional[str] = None
-    notes: Optional[str] = None
+    use_cases: list[str]
+    iops_range: str | None = None
+    throughput_range: str | None = None
+    notes: str | None = None
 
 
 class EbsRecommendationService:
@@ -98,8 +98,8 @@ class EbsRecommendationService:
     def get_recommendations(
         self,
         ebs_optimized_support: str,
-        ebs_optimized_info: Optional[Dict] = None
-    ) -> List[EbsVolumeRecommendation]:
+        ebs_optimized_info: Dict | None = None
+    ) -> list[EbsVolumeRecommendation]:
         """Get EBS volume type recommendations based on instance characteristics
 
         Args:
@@ -154,14 +154,14 @@ class EbsRecommendationService:
 
         return recommendations
 
-    def get_volume_type_details(self, volume_type: str) -> Optional[EbsVolumeRecommendation]:
+    def get_volume_type_details(self, volume_type: str) -> EbsVolumeRecommendation | None:
         """Get details for a specific volume type"""
         return self.volume_types.get(volume_type)
 
     def format_recommendations(
         self,
         ebs_optimized_support: str,
-        ebs_optimized_info: Optional[Dict] = None,
+        ebs_optimized_info: Dict | None = None,
         max_display: int = 3
     ) -> str:
         """Format recommendations as human-readable text

@@ -7,7 +7,7 @@ import time
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, List, Callable
+from typing import Callable
 from decimal import Decimal
 from botocore.exceptions import ClientError, BotoCoreError
 
@@ -22,7 +22,7 @@ logger = logging.getLogger("instancepedia")
 
 # Callback type definitions for better IDE support and type safety
 CacheHitCallback = Callable[[], None]
-PriceCallback = Callable[[str, Optional[float]], None]
+PriceCallback = Callable[[str, float | None], None]
 ProgressCallback = Callable[[int, int], None]
 
 
@@ -39,7 +39,7 @@ class PricingMetrics:
     successful_fetches: int = 0
     failed_fetches: int = 0
     start_time: float = field(default_factory=time.time)
-    end_time: Optional[float] = None
+    end_time: float | None = None
 
     @property
     def cache_hit_rate(self) -> float:
@@ -114,7 +114,7 @@ class PricingMetrics:
 class AsyncPricingService:
     """Async service for fetching EC2 instance pricing"""
 
-    def __init__(self, aws_client: AsyncAWSClient, use_cache: bool = True, settings: Optional[Settings] = None):
+    def __init__(self, aws_client: AsyncAWSClient, use_cache: bool = True, settings: Settings | None = None):
         """
         Initialize async pricing service
 
@@ -132,7 +132,7 @@ class AsyncPricingService:
         """Map AWS region code to Pricing API location name"""
         return get_pricing_region(region)
 
-    def _build_ec2_filters(self, instance_type: str, pricing_region: str) -> List[Dict]:
+    def _build_ec2_filters(self, instance_type: str, pricing_region: str) -> list[Dict]:
         """Build common EC2 pricing filters for Pricing API queries"""
         return [
             {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'},
@@ -148,8 +148,8 @@ class AsyncPricingService:
         instance_type: str,
         region: str,
         max_retries: int = 3,
-        cache_hit_callback: Optional[CacheHitCallback] = None
-    ) -> Optional[float]:
+        cache_hit_callback: CacheHitCallback | None = None
+    ) -> float | None:
         """
         Get on-demand price for an instance type in a region
 
@@ -236,7 +236,7 @@ class AsyncPricingService:
 
         return None
 
-    def _extract_price(self, price_data: dict, pricing_region: str) -> Optional[float]:
+    def _extract_price(self, price_data: dict, pricing_region: str) -> float | None:
         """Extract USD price from pricing API response"""
         try:
             # Verify location matches
@@ -267,7 +267,7 @@ class AsyncPricingService:
         except Exception:
             return None
 
-    async def get_spot_price(self, instance_type: str, region: str) -> Optional[float]:
+    async def get_spot_price(self, instance_type: str, region: str) -> float | None:
         """
         Get current spot price for an instance type in a region
 
@@ -320,7 +320,7 @@ class AsyncPricingService:
         instance_type: str,
         region: str,
         days: int = 30
-    ) -> Optional[SpotPriceHistory]:
+    ) -> SpotPriceHistory | None:
         """
         Get historical spot prices for an instance type with statistics
 
@@ -394,8 +394,8 @@ class AsyncPricingService:
         region: str,
         lease_length: str = "1yr",
         max_retries: int = 3,
-        cache_hit_callback: Optional[CacheHitCallback] = None
-    ) -> Optional[float]:
+        cache_hit_callback: CacheHitCallback | None = None
+    ) -> float | None:
         """
         Get Savings Plan price for an instance type (Reserved pricing with No Upfront)
 
@@ -541,8 +541,8 @@ class AsyncPricingService:
         lease_length: str = "1yr",
         payment_option: str = "no_upfront",
         max_retries: int = 3,
-        cache_hit_callback: Optional[CacheHitCallback] = None
-    ) -> Optional[float]:
+        cache_hit_callback: CacheHitCallback | None = None
+    ) -> float | None:
         """
         Get Reserved Instance price for an instance type (Standard RIs only)
 
@@ -698,14 +698,14 @@ class AsyncPricingService:
 
     async def get_on_demand_prices_batch(
         self,
-        instance_types: List[str],
+        instance_types: list[str],
         region: str,
         concurrency: int = 10,
-        progress_callback: Optional[ProgressCallback] = None,
-        price_callback: Optional[PriceCallback] = None,
-        cache_hit_callback: Optional[CacheHitCallback] = None,
+        progress_callback: ProgressCallback | None = None,
+        price_callback: PriceCallback | None = None,
+        cache_hit_callback: CacheHitCallback | None = None,
         return_metrics: bool = False
-    ) -> Dict[str, Optional[float]]:
+    ) -> dict[str, float | None]:
         """
         Get on-demand prices for multiple instance types concurrently
 
@@ -786,9 +786,9 @@ class AsyncPricingService:
 
     async def get_spot_prices_batch(
         self,
-        instance_types: List[str],
+        instance_types: list[str],
         region: str
-    ) -> Dict[str, Optional[float]]:
+    ) -> dict[str, float | None]:
         """
         Get spot prices for multiple instance types (uses EC2 batch API)
 

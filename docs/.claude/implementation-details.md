@@ -208,6 +208,250 @@ Pricing API is only available in `us-east-1`, so pricing client always uses that
 
 These helpers consolidate common logic across `get_on_demand_price()`, `get_savings_plan_price()`, and `get_reserved_instance_price()` methods.
 
+## Pricing API Response Schemas
+
+The AWS Pricing API returns complex JSON structures that require careful parsing. Understanding these schemas is critical for maintaining pricing functionality.
+
+### On-Demand Pricing Response
+
+**API Call:** `pricing_client.get_products()` with filters for instance type, region, and product family.
+
+**Response Structure:**
+```json
+{
+  "PriceList": [
+    "{\"product\": {\"attributes\": {...}}, \"terms\": {...}, \"version\": \"...\"}"
+  ],
+  "NextToken": "..."
+}
+```
+
+**Important:** The `PriceList` contains JSON strings (not objects), so each item must be `json.loads()` parsed.
+
+**Parsed Price List Item:**
+```json
+{
+  "product": {
+    "productFamily": "Compute Instance",
+    "attributes": {
+      "instanceType": "t3.micro",
+      "location": "US East (N. Virginia)",
+      "tenancy": "Shared",
+      "operatingSystem": "Linux",
+      "usagetype": "BoxUsage:t3.micro",
+      ...
+    }
+  },
+  "terms": {
+    "OnDemand": {
+      "JRTCKXETXF.JRTCKXETXF": {
+        "priceDimensions": {
+          "JRTCKXETXF.JRTCKXETXF.6YS6EN2CT7": {
+            "unit": "Hrs",
+            "pricePerUnit": {
+              "USD": "0.0104000000"
+            },
+            "description": "...",
+            "beginRange": "0",
+            "endRange": "Inf"
+          }
+        },
+        "termAttributes": {}
+      }
+    }
+  }
+}
+```
+
+**Parsing Pattern:**
+1. Check `response.get('PriceList')` exists
+2. `json.loads()` each `PriceList` item
+3. Navigate: `price_data['terms']['OnDemand'][term_key]['priceDimensions'][dimension_key]`
+4. Extract: `dimension_data['pricePerUnit']['USD']`
+5. Filter by `unit == 'Hrs'` (hourly pricing)
+6. Handle JPY prices: Convert to USD using approximate rate (150 JPY/USD)
+7. Choose lowest price if multiple matches (avoids extended instances, convertible RI prices)
+
+**Multi-Result Handling:**
+- API can return multiple results for same instance type (different tenancy, capacity reservations, etc.)
+- Verify `attributes['location']` matches target region
+- Select lowest price among valid matches
+- Fallback to first result if no matches found
+
+### Spot Pricing Response
+
+**API Call:** `ec2_client.describe_spot_price_history()` with filters for instance type and availability zones.
+
+**Response Structure:**
+```json
+{
+  "SpotPriceHistory": [
+    {
+      "InstanceType": "t3.micro",
+      "SpotPrice": "0.003120",
+      "Timestamp": "2024-01-11T20:30:00Z",
+      "AvailabilityZone": "us-east-1a",
+      "ProductDescription": "Linux/UNIX"
+    },
+    ...
+  ]
+}
+```
+
+**Parsing Pattern:**
+1. Query all availability zones in region
+2. Group results by AZ
+3. Filter by `ProductDescription == 'Linux/UNIX'`
+4. Average spot prices across all AZs
+5. Return `float(spot_price_string)`
+
+**Batching:**
+- Up to 50 instance types per API call
+- Set `MaxResults=100` to get history for all AZs
+- Uses `asyncio.gather()` for parallel fetching
+
+### Reserved Instance Pricing Response
+
+**API Call:** `pricing_client.get_products()` with filters for instance type, region, and RI lease contract length.
+
+**Response Structure:**
+Similar to on-demand, but in `terms['Reserved']` instead of `OnDemand`:
+```json
+{
+  "terms": {
+    "Reserved": {
+      "TERM_KEY": {
+        "priceDimensions": {
+          "DIMENSION_KEY.2TG2D8R56U": {
+            "unit": "Quantity",
+            "pricePerUnit": {
+              "USD": "456"
+            },
+            "description": "Upfront Fee"
+          },
+          "DIMENSION_KEY.6YS6EN2CT7": {
+            "unit": "Hrs",
+            "pricePerUnit": {
+              "USD": "0.0062"
+            },
+            "description": "USD 0.0062 per Linux/UNIX..."
+          }
+        },
+        "termAttributes": {
+          "LeaseContractLength": "1yr",
+          "OfferingClass": "standard",
+          "PurchaseOption": "Partial Upfront"
+        }
+      }
+    }
+  }
+}
+```
+
+**Parsing Pattern:**
+1. Navigate to `terms['Reserved']`
+2. Find term matching: `termAttributes['LeaseContractLength']` (e.g., "1yr", "3yr")
+3. Find term matching: `termAttributes['PurchaseOption']` (e.g., "No Upfront", "Partial Upfront", "All Upfront")
+4. Calculate effective hourly rate:
+   - Extract upfront fee: `unit == 'Quantity'` → `upfront_fee`
+   - Extract hourly rate: `unit == 'Hrs'` → `hourly_rate`
+   - Effective hourly = `(upfront_fee / (hours_in_term)) + hourly_rate`
+   - For 1yr: 8760 hours, for 3yr: 26280 hours
+
+**Payment Options:**
+- **No Upfront:** Only hourly charges, no upfront fee
+- **Partial Upfront:** Mix of upfront + reduced hourly
+- **All Upfront:** Full upfront payment, $0 hourly
+
+### Savings Plan Pricing Response
+
+**API Call:** `pricing_client.get_products()` with filters for Compute Savings Plan.
+
+**Response Structure:**
+Similar to RI, but in `terms['savingsPlan']`:
+```json
+{
+  "terms": {
+    "savingsPlan": {
+      "TERM_KEY": {
+        "priceDimensions": {
+          "DIMENSION_KEY": {
+            "unit": "Hrs",
+            "pricePerUnit": {
+              "USD": "0.0062"
+            }
+          }
+        },
+        "termAttributes": {
+          "LeaseContractLength": "1yr",
+          "PurchaseOption": "No Upfront"
+        }
+      }
+    }
+  }
+}
+```
+
+**Parsing Pattern:**
+1. Navigate to `terms['savingsPlan']`
+2. Match by `LeaseContractLength` (1yr/3yr)
+3. Filter by `PurchaseOption` (typically "No Upfront")
+4. Extract hourly rate from `priceDimensions`
+
+**Note:** Savings Plans are simpler than RIs - typically no upfront fee dimension, just hourly rate.
+
+### Error Responses and Edge Cases
+
+**Empty PriceList:**
+```json
+{
+  "PriceList": []
+}
+```
+- Return `None` instead of failing
+- Log at debug level for investigation
+- Cache `None` to avoid repeated failures
+
+**Throttling (429 Too Many Requests):**
+```python
+ClientError: An error occurred (Throttling) when calling the GetProducts operation...
+```
+- Caught as `botocore.exceptions.ClientError`
+- Check `error.response['Error']['Code'] == 'Throttling'`
+- Implement exponential backoff: 1s, 2s, 4s, 8s
+- Configurable max retries (default: 3)
+
+**Missing Currency:**
+- Some regions return `JPY` instead of `USD`
+- Convert using approximate rate: `150 JPY = 1 USD`
+- Used primarily for `ap-northeast-1` (Tokyo) and `ap-northeast-3` (Osaka)
+
+**Multiple Price Dimensions:**
+- Some responses include multiple dimensions (different units, terms, etc.)
+- Always filter by `unit == 'Hrs'` for hourly pricing
+- Ignore dimensions with `unit == 'Quantity'` (upfront fees for RI) unless calculating effective rate
+
+**Location Mismatch:**
+- API sometimes returns results for similar region names
+- Verify `attributes['location']` contains pricing_region substring
+- Special handling for Osaka ("ap-northeast-3") which can match generic "Japan" location
+
+### Caching Pricing Responses
+
+**Cache Keys:** `{region}_{instance_type}_{price_type}.json`
+- Example: `us-east-1_t3_micro_on_demand.json`
+- Dots in instance type replaced with underscores
+
+**What's Cached:**
+- Raw price values (float or None)
+- NOT full API responses (too large)
+- Cache both successful lookups AND None values
+
+**Cache TTL:** 4 hours (default, configurable)
+- Pricing changes infrequently
+- Reduces API calls by >90% in typical usage
+- Spot prices updated every 5 minutes but averaged, so 4h TTL acceptable
+
 ## Caching System
 
 The pricing cache (`src/cache.py`) provides persistent storage for pricing data:

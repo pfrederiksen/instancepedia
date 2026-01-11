@@ -1,7 +1,6 @@
 """EC2 instance type service"""
 
 import logging
-from typing import List, Optional
 from botocore.exceptions import ClientError, BotoCoreError
 
 from src.models.instance_type import InstanceType, PricingInfo
@@ -24,7 +23,7 @@ class InstanceService:
         """
         self.aws_client = aws_client
 
-    def get_instance_types(self, fetch_pricing: bool = False) -> List[InstanceType]:
+    def get_instance_types(self, fetch_pricing: bool = False) -> list[InstanceType]:
         """
         Fetch all available instance types for the region
         

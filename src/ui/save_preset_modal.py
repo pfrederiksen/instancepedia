@@ -4,7 +4,6 @@ from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal
 from textual.widgets import Static, Input, Button
 from textual.screen import ModalScreen
-from typing import Optional
 
 from src.services.filter_preset_service import FilterPresetService, FilterPreset
 from src.ui.filter_modal import FilterCriteria
@@ -78,7 +77,7 @@ class SavePresetModal(ModalScreen):
     def __init__(
         self,
         criteria: FilterCriteria,
-        suggested_name: Optional[str] = None
+        suggested_name: str | None = None
     ):
         super().__init__()
         self.criteria = criteria

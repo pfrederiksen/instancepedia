@@ -1,6 +1,6 @@
 """Region selector modal for multi-region comparison"""
 
-from typing import List, Optional, Callable
+from typing import Callable
 import logging
 
 from textual.app import ComposeResult
@@ -91,8 +91,8 @@ class RegionSelectorModal(ModalScreen):
         self,
         instance_type: str,
         current_region: str,
-        profile: Optional[str] = None,
-        on_compare: Optional[Callable[[List[str]], None]] = None
+        profile: str | None = None,
+        on_compare: Callable[[list[str]], None] | None = None
     ):
         """
         Initialize region selector modal
@@ -108,8 +108,8 @@ class RegionSelectorModal(ModalScreen):
         self.current_region = current_region
         self.profile = profile
         self.on_compare = on_compare
-        self.regions: List[str] = []
-        self.checkboxes: List[Checkbox] = []
+        self.regions: list[str] = []
+        self.checkboxes: list[Checkbox] = []
 
     def compose(self) -> ComposeResult:
         """Compose the modal UI"""

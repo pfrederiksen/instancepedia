@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 from datetime import datetime, timedelta
 import threading
 
@@ -22,7 +22,7 @@ class PricingCache:
     # Default TTL: 4 hours (pricing doesn't change frequently)
     DEFAULT_TTL_SECONDS = 4 * 60 * 60
 
-    def __init__(self, cache_dir: Optional[Path] = None, ttl_seconds: Optional[int] = None):
+    def __init__(self, cache_dir: Path | None = None, ttl_seconds: int | None = None):
         """
         Initialize pricing cache
 
@@ -65,7 +65,7 @@ class PricingCache:
         """Get file path for cache entry"""
         return self.cache_dir / f"{cache_key}.json"
 
-    def get(self, region: str, instance_type: str, price_type: str) -> Optional[float]:
+    def get(self, region: str, instance_type: str, price_type: str) -> float | None:
         """
         Get cached price if available and not expired
 
@@ -113,7 +113,7 @@ class PricingCache:
                 pass
             return None
 
-    def set(self, region: str, instance_type: str, price_type: str, price: Optional[float]) -> None:
+    def set(self, region: str, instance_type: str, price_type: str, price: float | None) -> None:
         """
         Store price in cache
 
@@ -143,7 +143,7 @@ class PricingCache:
         except Exception as e:
             logger.warning(f"Failed to write cache entry {cache_key}: {e}")
 
-    def clear(self, region: Optional[str] = None, instance_type: Optional[str] = None) -> int:
+    def clear(self, region: str | None = None, instance_type: str | None = None) -> int:
         """
         Clear cache entries
 
@@ -183,7 +183,7 @@ class PricingCache:
             logger.error(f"Failed to clear cache: {e}")
             return count
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics
 
@@ -241,7 +241,7 @@ class PricingCache:
 
 
 # Global cache instance
-_pricing_cache: Optional[PricingCache] = None
+_pricing_cache: PricingCache | None = None
 
 
 def get_pricing_cache() -> PricingCache:

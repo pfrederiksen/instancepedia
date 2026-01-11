@@ -2,7 +2,6 @@
 
 import boto3
 import logging
-from typing import Optional
 from botocore.exceptions import ClientError, NoCredentialsError, BotoCoreError
 from botocore.config import Config
 
@@ -21,7 +20,7 @@ class AWSClient:
     def __init__(
         self,
         region: str,
-        profile: Optional[str] = None,
+        profile: str | None = None,
         validate_region: bool = False,
         connect_timeout: int = 10,
         read_timeout: int = 60,

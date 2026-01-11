@@ -1,6 +1,5 @@
 """Multi-region pricing comparison modal for TUI"""
 
-from typing import List, Optional, Dict
 import logging
 
 from textual.app import ComposeResult
@@ -83,8 +82,8 @@ class RegionComparisonModal(ModalScreen):
     def __init__(
         self,
         instance_type: str,
-        regions: List[str],
-        profile: Optional[str] = None
+        regions: list[str],
+        profile: str | None = None
     ):
         """
         Initialize region comparison modal
@@ -98,7 +97,7 @@ class RegionComparisonModal(ModalScreen):
         self.instance_type = instance_type
         self.regions = regions
         self.profile = profile
-        self.region_data: Dict[str, Optional[InstanceType]] = {}
+        self.region_data: dict[str, InstanceType | None] = {}
 
     def compose(self) -> ComposeResult:
         """Compose the modal UI"""

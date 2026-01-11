@@ -1,7 +1,6 @@
 """Sorting options for instance list"""
 
 from enum import Enum
-from typing import List
 from src.models.instance_type import InstanceType
 
 
@@ -19,7 +18,7 @@ class SortOption(Enum):
         self.display_name = display_name
         self.key_func = key_func
 
-    def sort(self, instances: List[InstanceType]) -> List[InstanceType]:
+    def sort(self, instances: list[InstanceType]) -> list[InstanceType]:
         """Sort instances according to this option"""
         return sorted(instances, key=self.key_func)
 
