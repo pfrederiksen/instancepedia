@@ -877,3 +877,225 @@ class TestSpotPriceHistoryProperties:
 
         savings = history.savings_vs_current
         assert savings is None  # Cannot divide by zero
+
+
+class TestGetSpotPricesBatch:
+    """Tests for get_spot_prices_batch method"""
+
+    def test_get_spot_prices_batch_single_chunk(self, pricing_service, mock_aws_client):
+        """Test batch fetch with single chunk (< 50 instances)"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},
+                {'InstanceType': 't3.small', 'SpotPrice': '0.0208', 'Timestamp': now},
+                {'InstanceType': 't3.medium', 'SpotPrice': '0.0416', 'Timestamp': now},
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call with 3 instance types (single chunk)
+        result = pricing_service.get_spot_prices_batch(
+            ['t3.micro', 't3.small', 't3.medium'],
+            'us-east-1'
+        )
+
+        # Verify results
+        assert result == {
+            't3.micro': 0.0104,
+            't3.small': 0.0208,
+            't3.medium': 0.0416
+        }
+        # Verify single API call (no chunking needed)
+        assert mock_ec2_client.describe_spot_price_history.call_count == 1
+
+    def test_get_spot_prices_batch_multiple_chunks(self, pricing_service, mock_aws_client):
+        """Test batch fetch with multiple chunks (> 50 instances)"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+
+        # Create 75 instance types (should trigger 2 chunks: 50 + 25)
+        instance_types = [f't3.type{i}' for i in range(75)]
+
+        # Mock responses for each chunk
+        def mock_response(InstanceTypes, **kwargs):
+            return {
+                'SpotPriceHistory': [
+                    {'InstanceType': inst_type, 'SpotPrice': f'0.{i:04d}', 'Timestamp': now}
+                    for i, inst_type in enumerate(InstanceTypes)
+                ]
+            }
+
+        mock_ec2_client.describe_spot_price_history.side_effect = mock_response
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call with 75 instance types
+        result = pricing_service.get_spot_prices_batch(instance_types, 'us-east-1')
+
+        # Verify all 75 instances have prices
+        assert len(result) == 75
+        # Verify 2 API calls (2 chunks: 50 + 25)
+        assert mock_ec2_client.describe_spot_price_history.call_count == 2
+
+    def test_get_spot_prices_batch_with_pagination(self, pricing_service, mock_aws_client):
+        """Test batch fetch with NextToken pagination"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+
+        # Mock paginated responses
+        mock_ec2_client.describe_spot_price_history.side_effect = [
+            {
+                'SpotPriceHistory': [
+                    {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},
+                ],
+                'NextToken': 'token123'
+            },
+            {
+                'SpotPriceHistory': [
+                    {'InstanceType': 't3.small', 'SpotPrice': '0.0208', 'Timestamp': now},
+                ]
+                # No NextToken - last page
+            }
+        ]
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call batch method
+        result = pricing_service.get_spot_prices_batch(['t3.micro', 't3.small'], 'us-east-1')
+
+        # Verify both prices collected from paginated results
+        assert result == {
+            't3.micro': 0.0104,
+            't3.small': 0.0208
+        }
+        # Verify 2 API calls (pagination)
+        assert mock_ec2_client.describe_spot_price_history.call_count == 2
+        # Verify second call included NextToken
+        second_call_kwargs = mock_ec2_client.describe_spot_price_history.call_args_list[1][1]
+        assert second_call_kwargs['NextToken'] == 'token123'
+
+    def test_get_spot_prices_batch_most_recent_price(self, pricing_service, mock_aws_client):
+        """Test batch fetch keeps most recent price per instance type"""
+        from datetime import datetime, timezone, timedelta
+
+        now = datetime.now(timezone.utc)
+        old_time = now - timedelta(hours=1)
+
+        mock_ec2_client = Mock()
+        # Return multiple prices for same instance type with different timestamps
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0100', 'Timestamp': old_time},  # Older
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},  # Most recent
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0095', 'Timestamp': old_time - timedelta(hours=1)},  # Oldest
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        # Call batch method
+        result = pricing_service.get_spot_prices_batch(['t3.micro'], 'us-east-1')
+
+        # Verify only most recent price kept
+        assert result == {'t3.micro': 0.0104}
+
+    def test_get_spot_prices_batch_client_error_no_retry(self, pricing_service, mock_aws_client):
+        """Test batch fetch doesn't retry non-rate-limit ClientErrors"""
+        mock_ec2_client = Mock()
+
+        # Non-rate-limit error (should not retry)
+        mock_ec2_client.describe_spot_price_history.side_effect = ClientError(
+            {'Error': {'Code': 'InvalidParameterValue'}},
+            'describe_spot_price_history'
+        )
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(['t3.micro'], 'us-east-1', max_retries=3)
+
+        # Verify marked as None (no retries for non-rate-limit errors)
+        assert result == {'t3.micro': None}
+        # Verify only 1 API call (no retries)
+        assert mock_ec2_client.describe_spot_price_history.call_count == 1
+
+    def test_get_spot_prices_batch_pagination_error(self, pricing_service, mock_aws_client):
+        """Test batch fetch handles pagination errors gracefully"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+
+        # First page succeeds, second page fails
+        mock_ec2_client.describe_spot_price_history.side_effect = [
+            {
+                'SpotPriceHistory': [
+                    {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},
+                ],
+                'NextToken': 'token123'
+            },
+            Exception("Connection timeout")
+        ]
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(['t3.micro'], 'us-east-1')
+
+        # Verify first page data was kept despite second page error
+        assert result == {'t3.micro': 0.0104}
+
+    def test_get_spot_prices_batch_empty_list(self, pricing_service, mock_aws_client):
+        """Test batch fetch with empty instance list"""
+        result = pricing_service.get_spot_prices_batch([], 'us-east-1')
+
+        # Verify empty result
+        assert result == {}
+
+    def test_get_spot_prices_batch_generic_exception(self, pricing_service, mock_aws_client):
+        """Test batch fetch handles generic exceptions"""
+        mock_ec2_client = Mock()
+        mock_ec2_client.describe_spot_price_history.side_effect = Exception("Network error")
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(['t3.micro', 't3.small'], 'us-east-1', max_retries=1)
+
+        # Verify all marked as None after retries exhausted
+        assert result == {'t3.micro': None, 't3.small': None}
+
+    def test_get_spot_prices_batch_mixed_success_failure(self, pricing_service, mock_aws_client):
+        """Test batch fetch with mixed chunk success/failure"""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        mock_ec2_client = Mock()
+
+        # Create 75 instance types (2 chunks: 50 + 25)
+        instance_types = [f't3.type{i}' for i in range(75)]
+
+        # First chunk succeeds, second chunk fails
+        def mock_response(InstanceTypes, **kwargs):
+            if len(InstanceTypes) == 50:  # First chunk
+                return {
+                    'SpotPriceHistory': [
+                        {'InstanceType': inst_type, 'SpotPrice': '0.0100', 'Timestamp': now}
+                        for inst_type in InstanceTypes
+                    ]
+                }
+            else:  # Second chunk
+                raise ClientError(
+                    {'Error': {'Code': 'InvalidParameterValue'}},
+                    'describe_spot_price_history'
+                )
+
+        mock_ec2_client.describe_spot_price_history.side_effect = mock_response
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(instance_types, 'us-east-1')
+
+        # Verify first 50 have prices, last 25 are None
+        for i in range(50):
+            assert result[f't3.type{i}'] == 0.0100
+        for i in range(50, 75):
+            assert result[f't3.type{i}'] is None
