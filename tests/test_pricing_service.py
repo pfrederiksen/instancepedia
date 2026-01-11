@@ -1546,3 +1546,206 @@ class TestCurrencyConversion:
 
         # Verify None returned for zero JPY
         assert price is None
+
+
+class TestPrivateHelperMethods:
+    """Tests for private helper methods in PricingService"""
+
+    def test_get_pricing_region(self, pricing_service):
+        """Test _get_pricing_region maps region codes correctly"""
+        # Test common region mappings
+        assert pricing_service._get_pricing_region("us-east-1") == "US East (N. Virginia)"
+        assert pricing_service._get_pricing_region("us-west-2") == "US West (Oregon)"
+        assert pricing_service._get_pricing_region("eu-west-1") == "EU (Ireland)"
+        assert pricing_service._get_pricing_region("ap-northeast-1") == "Asia Pacific (Tokyo)"
+
+    def test_build_ec2_filters(self, pricing_service):
+        """Test _build_ec2_filters creates correct filter structure"""
+        filters = pricing_service._build_ec2_filters("t3.micro", "US East (N. Virginia)")
+
+        # Verify filter structure
+        assert len(filters) == 6
+        assert {'Type': 'TERM_MATCH', 'Field': 'ServiceCode', 'Value': 'AmazonEC2'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': 'US East (N. Virginia)'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'instanceType', 'Value': 't3.micro'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'tenancy', 'Value': 'Shared'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'operatingSystem', 'Value': 'Linux'} in filters
+        assert {'Type': 'TERM_MATCH', 'Field': 'preInstalledSw', 'Value': 'NA'} in filters
+
+    def test_parse_hourly_price_usd(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions with USD price"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hrs',
+                'pricePerUnit': {
+                    'USD': '0.0104'
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.0104
+
+    def test_parse_hourly_price_jpy_conversion(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions converts JPY to USD"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hrs',
+                'pricePerUnit': {
+                    'JPY': '15.6'  # 15.6 / 150 = 0.104
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.104
+
+    def test_parse_hourly_price_prefers_usd(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions prefers USD over JPY"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hrs',
+                'pricePerUnit': {
+                    'USD': '0.0104',  # Should use this
+                    'JPY': '15.6'     # Should ignore this
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.0104
+
+    def test_parse_hourly_price_hr_unit(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions accepts 'Hr' unit"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hr',  # Singular form
+                'pricePerUnit': {
+                    'USD': '0.0208'
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.0208
+
+    def test_parse_hourly_price_empty_unit(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions accepts empty unit"""
+        dimensions = {
+            'DIM123': {
+                'unit': '',  # Empty unit
+                'pricePerUnit': {
+                    'USD': '0.0416'
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price == 0.0416
+
+    def test_parse_hourly_price_zero_skipped(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions skips zero prices"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'Hrs',
+                'pricePerUnit': {
+                    'USD': '0.0'  # Zero price should be skipped
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price is None
+
+
+    def test_parse_hourly_price_no_match(self, pricing_service):
+        """Test _parse_hourly_price_from_dimensions returns None when no match"""
+        dimensions = {
+            'DIM123': {
+                'unit': 'GB',  # Wrong unit
+                'pricePerUnit': {
+                    'USD': '0.0104'
+                }
+            }
+        }
+
+        price = pricing_service._parse_hourly_price_from_dimensions(dimensions)
+        assert price is None
+
+    def test_handle_throttling_should_retry(self, pricing_service):
+        """Test _handle_throttling returns True for throttling within retry limit"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}},
+            'GetProducts'
+        )
+
+        with patch('time.sleep'):
+            should_retry = pricing_service._handle_throttling(
+                attempt=1, max_retries=3, error=error
+            )
+
+        assert should_retry is True
+
+    def test_handle_throttling_exhausted(self, pricing_service):
+        """Test _handle_throttling returns False when retries exhausted"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}},
+            'GetProducts'
+        )
+
+        should_retry = pricing_service._handle_throttling(
+            attempt=3, max_retries=3, error=error
+        )
+
+        assert should_retry is False
+
+    def test_handle_throttling_non_throttling_error(self, pricing_service):
+        """Test _handle_throttling returns False for non-throttling errors"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'InvalidParameterValue'}},
+            'GetProducts'
+        )
+
+        should_retry = pricing_service._handle_throttling(
+            attempt=1, max_retries=3, error=error
+        )
+
+        assert should_retry is False
+
+    def test_handle_throttling_exponential_backoff(self, pricing_service):
+        """Test _handle_throttling uses exponential backoff"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}},
+            'GetProducts'
+        )
+
+        with patch('time.sleep') as mock_sleep:
+            # First attempt: 2^1 = 2 seconds
+            pricing_service._handle_throttling(attempt=1, max_retries=3, error=error)
+            mock_sleep.assert_called_with(2)
+
+            # Second attempt: 2^2 = 4 seconds
+            pricing_service._handle_throttling(attempt=2, max_retries=3, error=error)
+            mock_sleep.assert_called_with(4)
+
+    def test_handle_throttling_max_wait_time(self, pricing_service):
+        """Test _handle_throttling caps wait time at 30 seconds"""
+        from botocore.exceptions import ClientError
+
+        error = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}},
+            'GetProducts'
+        )
+
+        with patch('time.sleep') as mock_sleep:
+            # Large attempt number: 2^10 = 1024, but should cap at 30
+            pricing_service._handle_throttling(attempt=10, max_retries=15, error=error)
+            mock_sleep.assert_called_with(30)
