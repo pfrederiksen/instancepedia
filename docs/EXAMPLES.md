@@ -239,8 +239,8 @@ instancepedia list \
   --sort price \
   --format table
 
-# Apply the "development" preset
-instancepedia presets apply development
+# Apply the "small-dev" preset (small development instances)
+instancepedia presets apply small-dev
 
 # Compare top candidates
 instancepedia compare t3.medium t3a.medium
