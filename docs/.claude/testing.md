@@ -88,6 +88,161 @@ class TestCmdNewFeature:
             cmd_new_feature(args)
 ```
 
+### Entry Point Test Pattern
+
+Entry point tests (like `main.py`) require comprehensive mocking since they orchestrate TUI/CLI routing. These tests verify routing logic without actually running the TUI or CLI.
+
+**When to use this pattern:**
+- Application entry points (`main.py`, `app.py`)
+- Functions that coordinate between TUI and CLI modes
+- Mode detection and routing logic
+- Entry-level error handling and initialization
+
+**Test categories for entry points:**
+1. **TUI mode tests**: Verify TUI is launched correctly
+2. **CLI mode tests**: Verify CLI commands are routed correctly
+3. **Error handling tests**: Verify graceful error handling
+4. **Mode isolation tests**: Verify TUI and CLI modes don't interfere
+
+**Example entry point test pattern:**
+
+```python
+from unittest.mock import Mock, patch
+from src.main import main
+
+class TestMainEntryPoint:
+    """Tests for main() entry point"""
+
+    @patch('src.main.parse_args')
+    @patch('src.main.InstancepediaApp')
+    @patch('src.main.Settings')
+    @patch('src.main.setup_logging')
+    def test_tui_mode_explicit_flag(
+        self,
+        mock_setup_logging,
+        mock_settings_class,
+        mock_app_class,
+        mock_parse_args
+    ):
+        """Test TUI mode with explicit --tui flag"""
+        # Setup mocks
+        mock_args = Mock()
+        mock_args.tui = True
+        mock_args.command = None
+        mock_args.debug = False
+        mock_parse_args.return_value = mock_args
+
+        mock_settings_instance = Mock()
+        mock_settings_class.return_value = mock_settings_instance
+
+        mock_app = Mock()
+        mock_app_class.return_value = mock_app
+
+        # Execute entry point
+        main()
+
+        # Verify TUI initialization
+        mock_setup_logging.assert_called_once_with(level="INFO", enable_tui=False)
+        mock_settings_class.assert_called_once()
+        mock_app_class.assert_called_once_with(mock_settings_instance, debug=False)
+        mock_app.run.assert_called_once()
+
+    @patch('src.main.parse_args')
+    @patch('src.main.run_cli')
+    @patch('src.main.Settings')
+    @patch('src.main.setup_logging')
+    def test_cli_mode_with_command(
+        self,
+        mock_setup_logging,
+        mock_settings_class,
+        mock_run_cli,
+        mock_parse_args
+    ):
+        """Test CLI mode when command is specified"""
+        # Setup mocks
+        mock_args = Mock()
+        mock_args.tui = False
+        mock_args.command = 'list'
+        mock_args.debug = False
+        mock_parse_args.return_value = mock_args
+
+        mock_run_cli.return_value = 0  # Success exit code
+
+        # Execute entry point
+        exit_code = main()
+
+        # Verify CLI routing
+        mock_setup_logging.assert_called_once_with(level="INFO", enable_tui=False)
+        mock_run_cli.assert_called_once_with(mock_args)
+        assert exit_code == 0
+
+    @patch('src.main.parse_args')
+    @patch('src.main.InstancepediaApp')
+    def test_tui_initialization_error(self, mock_app_class, mock_parse_args):
+        """Test graceful handling of TUI initialization errors"""
+        # Setup mocks
+        mock_args = Mock()
+        mock_args.tui = True
+        mock_args.command = None
+        mock_args.debug = False
+        mock_parse_args.return_value = mock_args
+
+        # Simulate TUI initialization error
+        mock_app_class.side_effect = Exception("Failed to initialize TUI")
+
+        # Execute entry point - should handle error gracefully
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+
+    @patch('src.main.parse_args')
+    def test_keyboard_interrupt_handling(self, mock_parse_args):
+        """Test graceful handling of Ctrl+C"""
+        # Simulate KeyboardInterrupt during argument parsing
+        mock_parse_args.side_effect = KeyboardInterrupt()
+
+        # Execute entry point - should exit gracefully
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 130  # Standard Unix Ctrl+C exit code
+```
+
+**Key mocking strategy for entry points:**
+
+1. **Mock all dependencies**: Mock argument parsing, app initialization, settings, logging
+2. **Test routing logic**: Verify correct mode (TUI vs CLI) is invoked
+3. **Test mode isolation**: Ensure TUI mode doesn't call CLI code and vice versa
+4. **Test error paths**: Verify graceful handling of initialization errors
+5. **Verify exit codes**: Check correct exit codes for success/failure scenarios
+
+**Why this approach works:**
+
+- **Tests routing without execution**: Verifies logic without running actual TUI/CLI
+- **Fast test execution**: Mocked tests run in milliseconds
+- **Deterministic**: No UI timing issues or CLI output capturing
+- **Comprehensive coverage**: Can test error paths that are hard to trigger in integration tests
+- **Isolated**: Tests only the entry point coordination logic
+
+**Common pitfalls to avoid:**
+
+```python
+# ❌ Bad: Don't expect SystemExit for normal TUI mode
+with pytest.raises(SystemExit):
+    main()  # TUI mode returns normally, doesn't exit
+
+# ✅ Good: Call main() directly for TUI mode
+main()
+mock_app.run.assert_called_once()
+
+# ❌ Bad: Don't test actual TUI/CLI behavior in entry point tests
+assert "Instance Type" in captured_output  # This is an integration test
+
+# ✅ Good: Only verify routing and initialization
+mock_app_class.assert_called_once_with(settings, debug=False)
+```
+
 ### Service Test Pattern
 
 Service tests should mock AWS clients and verify business logic:
