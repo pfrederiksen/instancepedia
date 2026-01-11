@@ -1,5 +1,6 @@
 """Tests for PricingService"""
 
+import json
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from decimal import Decimal
@@ -1099,3 +1100,271 @@ class TestGetSpotPricesBatch:
             assert result[f't3.type{i}'] == 0.0100
         for i in range(50, 75):
             assert result[f't3.type{i}'] is None
+
+
+class TestGetSavingsPlanPrice:
+    """Tests for get_savings_plan_price method"""
+
+    def _create_savings_plan_response(self, lease_length="1yr", purchase_option="No Upfront", price="0.0052"):
+        """Helper to create mock savings plan pricing response"""
+        return {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'Reserved': {
+                            'TERM123': {
+                                'termAttributes': {
+                                    'LeaseContractLength': lease_length,
+                                    'PurchaseOption': purchase_option,
+                                },
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'USD': price
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+
+    def test_get_savings_plan_price_cache_hit(self, pricing_service):
+        """Test savings plan price with cache hit"""
+        # Setup cache with existing price
+        pricing_service.cache.get.return_value = 0.0052
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify cache was checked
+        pricing_service.cache.get.assert_called_once_with("us-east-1", "t3.micro", "savings_1yr")
+        # Verify cached price returned
+        assert price == 0.0052
+
+    def test_get_savings_plan_price_cache_miss_1yr(self, pricing_service, mock_aws_client):
+        """Test savings plan price cache miss for 1yr No Upfront"""
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = self._create_savings_plan_response("1yr", "No Upfront", "0.0052")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify price found and cached
+        assert price == 0.0052
+        pricing_service.cache.set.assert_called_once_with("us-east-1", "t3.micro", "savings_1yr", 0.0052)
+
+    def test_get_savings_plan_price_cache_miss_3yr(self, pricing_service, mock_aws_client):
+        """Test savings plan price cache miss for 3yr No Upfront"""
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = self._create_savings_plan_response("3yr", "No Upfront", "0.0039")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "3yr")
+
+        # Verify price found and cached with correct key
+        assert price == 0.0039
+        pricing_service.cache.set.assert_called_once_with("us-east-1", "t3.micro", "savings_3yr", 0.0039)
+
+    def test_get_savings_plan_price_invalid_lease_length(self, pricing_service):
+        """Test savings plan price with invalid lease length"""
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "5yr")
+
+        # Verify None returned for invalid lease
+        assert price is None
+
+    def test_get_savings_plan_price_no_price_list(self, pricing_service, mock_aws_client):
+        """Test savings plan price with empty PriceList"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {}  # No PriceList key
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned and cached
+        assert price is None
+        pricing_service.cache.set.assert_called_once_with("us-east-1", "t3.micro", "savings_1yr", None)
+
+    def test_get_savings_plan_price_no_reserved_terms(self, pricing_service, mock_aws_client):
+        """Test savings plan price with no Reserved terms"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'OnDemand': {}  # Only OnDemand, no Reserved
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned
+        assert price is None
+
+    def test_get_savings_plan_price_multiple_offerings_selects_lowest(self, pricing_service, mock_aws_client):
+        """Test savings plan price selects lowest when multiple offerings exist"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        # Multiple offerings with different prices
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'Reserved': {
+                            'TERM1': {
+                                'termAttributes': {
+                                    'LeaseContractLength': '1yr',
+                                    'PurchaseOption': 'No Upfront',
+                                },
+                                'priceDimensions': {
+                                    'DIM1': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {'USD': '0.0060'}  # Higher
+                                    }
+                                }
+                            },
+                            'TERM2': {
+                                'termAttributes': {
+                                    'LeaseContractLength': '1yr',
+                                    'PurchaseOption': 'No Upfront',
+                                },
+                                'priceDimensions': {
+                                    'DIM2': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {'USD': '0.0052'}  # Lower - should be selected
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify lowest price selected
+        assert price == 0.0052
+
+    def test_get_savings_plan_price_skips_partial_upfront(self, pricing_service, mock_aws_client):
+        """Test savings plan price skips Partial Upfront offerings"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = self._create_savings_plan_response("1yr", "Partial Upfront", "0.0045")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned (Partial Upfront should be skipped)
+        assert price is None
+
+    def test_get_savings_plan_price_skips_all_upfront(self, pricing_service, mock_aws_client):
+        """Test savings plan price skips All Upfront offerings"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = self._create_savings_plan_response("1yr", "All Upfront", "0.0040")
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned (All Upfront should be skipped)
+        assert price is None
+
+    def test_get_savings_plan_price_rate_limit_retry(self, pricing_service, mock_aws_client):
+        """Test savings plan price retries on rate limiting"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        from botocore.exceptions import ClientError
+        # First call: rate limit, second call: success
+        mock_pricing_client.get_products.side_effect = [
+            ClientError({'Error': {'Code': 'Throttling'}}, 'GetProducts'),
+            self._create_savings_plan_response("1yr", "No Upfront", "0.0052")
+        ]
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):
+            price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr", max_retries=3)
+
+        # Verify retry succeeded
+        assert price == 0.0052
+        assert mock_pricing_client.get_products.call_count == 2
+
+    def test_get_savings_plan_price_rate_limit_exhausted(self, pricing_service, mock_aws_client):
+        """Test savings plan price returns None when retries exhausted"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        from botocore.exceptions import ClientError
+        # All retries fail
+        mock_pricing_client.get_products.side_effect = ClientError(
+            {'Error': {'Code': 'ThrottlingException'}}, 'GetProducts'
+        )
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):
+            price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr", max_retries=2)
+
+        # Verify None returned after retries exhausted
+        assert price is None
+        assert mock_pricing_client.get_products.call_count == 3  # Initial + 2 retries
+
+    def test_get_savings_plan_price_access_denied_raises(self, pricing_service, mock_aws_client):
+        """Test savings plan price raises exception for AccessDeniedException"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        from botocore.exceptions import ClientError
+        mock_pricing_client.get_products.side_effect = ClientError(
+            {'Error': {'Code': 'AccessDeniedException', 'Message': 'Access denied'}},
+            'GetProducts'
+        )
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        # Verify exception is raised
+        with pytest.raises(Exception, match="AWS Pricing API error"):
+            pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+    def test_get_savings_plan_price_other_client_error(self, pricing_service, mock_aws_client):
+        """Test savings plan price returns None for other ClientErrors"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        from botocore.exceptions import ClientError
+        mock_pricing_client.get_products.side_effect = ClientError(
+            {'Error': {'Code': 'InvalidParameterValue'}}, 'GetProducts'
+        )
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr")
+
+        # Verify None returned (no retry for non-rate-limit errors)
+        assert price is None
+        assert mock_pricing_client.get_products.call_count == 1
+
+    def test_get_savings_plan_price_generic_exception_retry(self, pricing_service, mock_aws_client):
+        """Test savings plan price retries generic exceptions"""
+        pricing_service.cache.get.return_value = None
+        mock_pricing_client = MagicMock()
+
+        # First call: exception, second call: success
+        mock_pricing_client.get_products.side_effect = [
+            Exception("Network error"),
+            self._create_savings_plan_response("1yr", "No Upfront", "0.0052")
+        ]
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):
+            price = pricing_service.get_savings_plan_price("t3.micro", "us-east-1", "1yr", max_retries=3)
+
+        # Verify retry succeeded
+        assert price == 0.0052
+        assert mock_pricing_client.get_products.call_count == 2
