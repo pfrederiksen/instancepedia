@@ -191,3 +191,297 @@ class TestPricingHistoryModalCSS:
 
         # Check for key CSS selectors
         assert "ModalScreen" in css
+
+
+class TestPricingHistoryModalFormatting:
+    """Tests for formatting spot price history"""
+
+    def test_format_history_with_complete_data(self):
+        """Test formatting history with all data present"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[
+                (datetime(2024, 1, 1, 12, 0), 0.05),
+                (datetime(2024, 1, 2, 12, 0), 0.06),
+                (datetime(2024, 1, 3, 12, 0), 0.04),
+            ],
+            min_price=0.04,
+            max_price=0.06,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.01,
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        # Check content
+        assert "Period: Last 30 days" in result
+        assert "3 data points" in result
+        assert "Current Price:" in result
+        assert "$0.0500/hr" in result
+        assert "Minimum Price:" in result
+        assert "$0.0400/hr" in result
+        assert "Maximum Price:" in result
+        assert "$0.0600/hr" in result
+        assert "Average Price:" in result
+        assert "Median Price:" in result
+        assert "Price Trend" in result
+
+    def test_format_history_with_none_prices(self):
+        """Test formatting when some prices are None"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[],
+            min_price=None,
+            max_price=None,
+            avg_price=None,
+            median_price=None,
+            std_dev=None,
+            current_price=None
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        # Check N/A appears for missing data
+        assert "Current Price:   N/A" in result
+        assert "Minimum Price:   N/A" in result
+        assert "Maximum Price:   N/A" in result
+        assert "Average Price:   N/A" in result
+        assert "Median Price:    N/A" in result
+
+    def test_format_history_volatility_very_stable(self):
+        """Test volatility label for very stable prices (< 10%)"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[(datetime.now(), 0.05)],
+            min_price=0.049,
+            max_price=0.051,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.003,  # 6% volatility
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        assert "Volatility:" in result
+        assert "Very Stable ✓" in result
+
+    def test_format_history_volatility_stable(self):
+        """Test volatility label for stable prices (10-20%)"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[(datetime.now(), 0.05)],
+            min_price=0.04,
+            max_price=0.06,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.0075,  # 15% volatility
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        assert "Stability:       Stable" in result
+
+    def test_format_history_volatility_moderate(self):
+        """Test volatility label for moderate prices (20-30%)"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[(datetime.now(), 0.05)],
+            min_price=0.03,
+            max_price=0.07,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.0125,  # 25% volatility
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        assert "Stability:       Moderate" in result
+
+    def test_format_history_volatility_volatile(self):
+        """Test volatility label for volatile prices (30-50%)"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[(datetime.now(), 0.05)],
+            min_price=0.02,
+            max_price=0.08,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.02,  # 40% volatility
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        assert "Stability:       Volatile ⚠" in result
+
+    def test_format_history_volatility_highly_volatile(self):
+        """Test volatility label for highly volatile prices (> 50%)"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[(datetime.now(), 0.05)],
+            min_price=0.01,
+            max_price=0.10,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.03,  # 60% volatility
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        assert "Stability:       Highly Volatile ⚠⚠" in result
+
+    def test_format_history_with_savings_potential(self):
+        """Test formatting when savings potential exists"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[(datetime.now(), 0.06)],
+            min_price=0.04,
+            max_price=0.06,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.01,
+            current_price=0.06
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        # Check savings section appears
+        assert "Potential Savings:" in result
+        assert "If you had bought at minimum price instead of current:" in result
+        assert "Savings:" in result
+        assert "cheaper" in result
+
+    def test_format_history_with_price_trend_bars(self):
+        """Test that price trend bars are generated"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[
+                (datetime(2024, 1, 1, 12, 0), 0.04),
+                (datetime(2024, 1, 2, 12, 0), 0.05),
+                (datetime(2024, 1, 3, 12, 0), 0.06),
+            ],
+            min_price=0.04,
+            max_price=0.06,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.01,
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        # Check price trend exists
+        assert "Price Trend (last 30 data points):" in result
+        assert "2024-01-01 12:00" in result
+        assert "2024-01-02 12:00" in result
+        assert "2024-01-03 12:00" in result
+        assert "█" in result  # Bar chart character
+
+    def test_format_history_with_no_price_points(self):
+        """Test formatting when no price points exist"""
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=[],
+            min_price=0.05,
+            max_price=0.05,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.0,
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        assert "0 data points" in result
+        assert "No price data available" in result
+
+    def test_format_no_history(self):
+        """Test formatting when no history is available"""
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_no_history()
+
+        assert "No spot price history available" in result
+        assert "t3.large" in result
+        assert "us-east-1" in result
+
+    def test_format_history_with_many_points_truncates(self):
+        """Test that many price points are truncated to last 30"""
+        # Create 50 price points across multiple months using timedelta
+        from datetime import timedelta
+        base_date = datetime(2024, 1, 1, 12, 0)
+        price_points = [
+            (base_date + timedelta(days=i), 0.05)
+            for i in range(50)
+        ]
+
+        history = SpotPriceHistory(
+            instance_type="t3.large",
+            region="us-east-1",
+            days=30,
+            price_points=price_points,
+            min_price=0.05,
+            max_price=0.05,
+            avg_price=0.05,
+            median_price=0.05,
+            std_dev=0.0,
+            current_price=0.05
+        )
+
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        result = modal._format_history(history)
+
+        # Should mention 50 data points
+        assert "50 data points" in result
+        # Should only show last 30 in trend
+        # Last 30 points would be days 20-49 (0-indexed)
+        assert "2024-01-21" in result  # Day 20 (base + 20 days)
+        assert "2024-01-01" not in result  # Day 0 should not be shown
+
+    def test_history_attribute_set(self):
+        """Test that modal has history attribute"""
+        modal = PricingHistoryModal("t3.large", "us-east-1")
+        assert hasattr(modal, 'history')
+        assert modal.history is None  # Initially None
+
+    def test_modal_init_with_profile(self):
+        """Test modal initialization with profile"""
+        modal = PricingHistoryModal("t3.large", "us-east-1", profile="my-profile")
+        assert modal.instance_type == "t3.large"
+        assert modal._region == "us-east-1"
+        assert modal.profile == "my-profile"
