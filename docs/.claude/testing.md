@@ -399,6 +399,251 @@ def test_concurrent_reads_writes(cache):
     assert write_count == 10
 ```
 
+### Dataclass Property Testing Pattern
+
+Test computed properties on dataclasses with comprehensive edge case coverage.
+
+**When to use:**
+- Testing `@property` methods on dataclasses
+- Testing calculations that depend on multiple fields
+- Testing edge cases: None values, division by zero, empty collections
+
+**Pattern:**
+```python
+def test_volatility_percentage_normal(self):
+    """Test volatility percentage calculation with normal values"""
+    from datetime import datetime, timezone
+    from src.services.pricing_service import SpotPriceHistory
+
+    now = datetime.now(timezone.utc)
+    history = SpotPriceHistory(
+        instance_type="t3.micro",
+        region="us-east-1",
+        days=30,
+        current_price=0.0104,
+        min_price=0.0095,
+        max_price=0.0120,
+        avg_price=0.0105,
+        median_price=0.0104,
+        std_dev=0.0010,
+        price_points=[(now, 0.0104)]
+    )
+
+    volatility = history.volatility_percentage
+    # std_dev / avg_price * 100 = 0.0010 / 0.0105 * 100 ≈ 9.52%
+    assert volatility is not None
+    assert abs(volatility - 9.52) < 0.1
+
+def test_volatility_percentage_none_std_dev(self):
+    """Test volatility percentage returns None for single price point"""
+    history = SpotPriceHistory(
+        instance_type="t3.micro",
+        region="us-east-1",
+        days=30,
+        current_price=0.0104,
+        min_price=0.0104,
+        max_price=0.0104,
+        avg_price=0.0104,
+        median_price=0.0104,
+        std_dev=None,  # Single price point
+        price_points=[(now, 0.0104)]
+    )
+
+    # Cannot calculate volatility with single price
+    assert history.volatility_percentage is None
+
+def test_volatility_percentage_zero_avg_price(self):
+    """Test volatility percentage returns None for zero average (no division by zero)"""
+    history = SpotPriceHistory(
+        instance_type="t3.micro",
+        region="us-east-1",
+        days=30,
+        current_price=0.0,
+        min_price=0.0,
+        max_price=0.0,
+        avg_price=0.0,  # Zero average
+        median_price=0.0,
+        std_dev=0.0010,
+        price_points=[(now, 0.0)]
+    )
+
+    # Cannot divide by zero
+    assert history.volatility_percentage is None
+```
+
+**Key aspects:**
+1. **Normal case**: Test calculation with valid inputs
+2. **None handling**: Test when dependencies are None (incomplete data)
+3. **Division by zero**: Test zero denominators return None (not crash)
+4. **Precision**: Use `abs(result - expected) < tolerance` for float comparisons
+
+### Batch Chunking Pattern
+
+Test batch operations that split requests into chunks due to API limits.
+
+**When to use:**
+- Testing methods that process large lists in chunks (AWS 50-instance limit)
+- Verifying correct chunk sizes and number of API calls
+- Testing that all items get processed despite chunking
+
+**Pattern:**
+```python
+def test_get_spot_prices_batch_multiple_chunks(self, pricing_service, mock_aws_client):
+    """Test batch fetch with multiple chunks (> 50 instances)"""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    mock_ec2_client = Mock()
+
+    # Create 75 instance types (should trigger 2 chunks: 50 + 25)
+    instance_types = [f't3.type{i}' for i in range(75)]
+
+    # Mock responses for each chunk
+    def mock_response(InstanceTypes, **kwargs):
+        return {
+            'SpotPriceHistory': [
+                {'InstanceType': inst_type, 'SpotPrice': f'0.{i:04d}', 'Timestamp': now}
+                for i, inst_type in enumerate(InstanceTypes)
+            ]
+        }
+
+    mock_ec2_client.describe_spot_price_history.side_effect = mock_response
+    mock_aws_client.ec2_client = mock_ec2_client
+
+    # Call with 75 instance types
+    result = pricing_service.get_spot_prices_batch(instance_types, 'us-east-1')
+
+    # Verify all 75 instances have prices
+    assert len(result) == 75
+    # Verify 2 API calls (2 chunks: 50 + 25)
+    assert mock_ec2_client.describe_spot_price_history.call_count == 2
+
+def test_get_spot_prices_batch_mixed_success_failure(self, pricing_service, mock_aws_client):
+    """Test batch fetch with mixed chunk success/failure"""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    mock_ec2_client = Mock()
+
+    # Create 75 instance types (2 chunks: 50 + 25)
+    instance_types = [f't3.type{i}' for i in range(75)]
+
+    # First chunk succeeds, second chunk fails
+    def mock_response(InstanceTypes, **kwargs):
+        if len(InstanceTypes) == 50:  # First chunk
+            return {
+                'SpotPriceHistory': [
+                    {'InstanceType': inst_type, 'SpotPrice': '0.0100', 'Timestamp': now}
+                    for inst_type in InstanceTypes
+                ]
+            }
+        else:  # Second chunk
+            raise ClientError(
+                {'Error': {'Code': 'InvalidParameterValue'}},
+                'describe_spot_price_history'
+            )
+
+    mock_ec2_client.describe_spot_price_history.side_effect = mock_response
+    mock_aws_client.ec2_client = mock_ec2_client
+
+    result = pricing_service.get_spot_prices_batch(instance_types, 'us-east-1')
+
+    # Verify first 50 have prices, last 25 are None
+    for i in range(50):
+        assert result[f't3.type{i}'] == 0.0100
+    for i in range(50, 75):
+        assert result[f't3.type{i}'] is None
+```
+
+**Key aspects:**
+1. **Chunk size verification**: Test with count > limit to trigger multiple chunks
+2. **API call count**: Verify expected number of calls (e.g., 75 items = 2 calls)
+3. **Complete results**: Verify all items in result dict despite chunking
+4. **Partial failure**: Test when some chunks succeed and others fail
+5. **Use dynamic responses**: Mock function inspects `InstanceTypes` parameter to determine which chunk
+
+### AWS Pagination Testing Pattern
+
+Test AWS API pagination with NextToken across multiple pages.
+
+**When to use:**
+- Testing methods that handle AWS NextToken pagination
+- Verifying complete data collection across pages
+- Testing graceful degradation when pagination fails mid-stream
+
+**Pattern:**
+```python
+def test_get_spot_prices_batch_with_pagination(self, pricing_service, mock_aws_client):
+    """Test batch fetch with NextToken pagination"""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    mock_ec2_client = Mock()
+
+    # Mock paginated responses
+    mock_ec2_client.describe_spot_price_history.side_effect = [
+        {
+            'SpotPriceHistory': [
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},
+            ],
+            'NextToken': 'token123'  # More pages available
+        },
+        {
+            'SpotPriceHistory': [
+                {'InstanceType': 't3.small', 'SpotPrice': '0.0208', 'Timestamp': now},
+            ]
+            # No NextToken - last page
+        }
+    ]
+    mock_aws_client.ec2_client = mock_ec2_client
+
+    # Call batch method
+    result = pricing_service.get_spot_prices_batch(['t3.micro', 't3.small'], 'us-east-1')
+
+    # Verify both prices collected from paginated results
+    assert result == {
+        't3.micro': 0.0104,
+        't3.small': 0.0208
+    }
+    # Verify 2 API calls (pagination)
+    assert mock_ec2_client.describe_spot_price_history.call_count == 2
+    # Verify second call included NextToken
+    second_call_kwargs = mock_ec2_client.describe_spot_price_history.call_args_list[1][1]
+    assert second_call_kwargs['NextToken'] == 'token123'
+
+def test_get_spot_prices_batch_pagination_error(self, pricing_service, mock_aws_client):
+    """Test batch fetch handles pagination errors gracefully"""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    mock_ec2_client = Mock()
+
+    # First page succeeds, second page fails
+    mock_ec2_client.describe_spot_price_history.side_effect = [
+        {
+            'SpotPriceHistory': [
+                {'InstanceType': 't3.micro', 'SpotPrice': '0.0104', 'Timestamp': now},
+            ],
+            'NextToken': 'token123'
+        },
+        Exception("Connection timeout")  # Second page fails
+    ]
+    mock_aws_client.ec2_client = mock_ec2_client
+
+    result = pricing_service.get_spot_prices_batch(['t3.micro'], 'us-east-1')
+
+    # Verify first page data was kept despite second page error
+    assert result == {'t3.micro': 0.0104}
+```
+
+**Key aspects:**
+1. **Multi-page responses**: Use `side_effect` list with multiple dicts
+2. **NextToken presence**: Include `'NextToken': 'token123'` in all but last page
+3. **Token verification**: Check second call receives NextToken parameter
+4. **API call count**: Verify multiple calls made (one per page)
+5. **Graceful degradation**: Test partial data retention when pagination fails
+6. **Last page detection**: Verify loop stops when no NextToken returned
+
 ### TUI Test Pattern
 
 TUI tests use Textual's `app.run_test()` async context:
