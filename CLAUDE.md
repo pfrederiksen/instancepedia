@@ -103,9 +103,33 @@ Instancepedia is an EC2 Instance Type Browser with both TUI (Terminal User Inter
 
 ## Common Commands
 
+### Virtual Environment - CRITICAL
+
+**ALWAYS use the virtual environment** when working on this project. The `.venv` directory contains all required dependencies.
+
+```bash
+# Activate virtual environment (do this first!)
+source .venv/bin/activate
+
+# Verify you're in venv (should show .venv/bin/python)
+which python
+
+# Deactivate when done
+deactivate
+```
+
+**Why this matters:**
+- Dependencies are isolated and version-controlled
+- pytest, boto3, textual, and dev tools are pre-installed
+- Prevents conflicts with system Python packages
+- Ensures consistent behavior across development sessions
+
 ### Development Setup
 ```bash
-# Install in development mode with dev dependencies
+# ALWAYS activate venv first!
+source .venv/bin/activate
+
+# Install in development mode with dev dependencies (if needed)
 pip install -e ".[dev]"
 
 # Run the application in TUI mode
@@ -117,14 +141,20 @@ instancepedia --tui --debug
 
 ### Testing
 ```bash
+# ALWAYS activate venv first!
+source .venv/bin/activate
+
 # Run all tests
-pytest
+pytest tests/ -v
 
 # Run specific test file
-pytest tests/test_tui_instance_list.py
+pytest tests/test_tui_instance_list.py -v
 
-# Run with verbose output
-pytest -v
+# Run with coverage
+pytest tests/ --cov=src --cov-report=term-missing
+
+# Run specific test class or method
+pytest tests/test_region_mapping.py::TestRegionMapping::test_region_map_exists -v
 ```
 
 ### Release and Publishing
