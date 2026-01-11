@@ -1368,3 +1368,181 @@ class TestGetSavingsPlanPrice:
         # Verify retry succeeded
         assert price == 0.0052
         assert mock_pricing_client.get_products.call_count == 2
+
+
+class TestCurrencyConversion:
+    """Tests for JPY to USD currency conversion"""
+
+    def test_on_demand_jpy_to_usd_conversion(self, pricing_service, mock_aws_client):
+        """Test on-demand pricing converts JPY to USD"""
+        mock_pricing_client = MagicMock()
+        # Return JPY price only (no USD)
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {'attributes': {'instanceType': 't3.micro'}},
+                    'terms': {
+                        'OnDemand': {
+                            'TERM123': {
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'JPY': '15.6'  # 150 JPY = 1 USD, so 15.6 JPY = 0.104 USD
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "ap-northeast-1")
+
+        # Verify JPY converted to USD: 15.6 / 150 = 0.104
+        assert price == 0.104
+
+    def test_on_demand_prefers_usd_over_jpy(self, pricing_service, mock_aws_client):
+        """Test on-demand pricing prefers USD when both USD and JPY exist"""
+        mock_pricing_client = MagicMock()
+        # Return both USD and JPY prices
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {'attributes': {'instanceType': 't3.micro'}},
+                    'terms': {
+                        'OnDemand': {
+                            'TERM123': {
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'USD': '0.0104',  # Should use this
+                                            'JPY': '15.6'     # Should ignore this
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "ap-northeast-1")
+
+        # Verify USD price used, not JPY conversion
+        assert price == 0.0104
+
+    def test_on_demand_jpy_invalid_value(self, pricing_service, mock_aws_client):
+        """Test on-demand pricing handles invalid JPY values gracefully"""
+        mock_pricing_client = MagicMock()
+        # Return invalid JPY price
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {'attributes': {'instanceType': 't3.micro'}},
+                    'terms': {
+                        'OnDemand': {
+                            'TERM123': {
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'JPY': 'invalid'  # Invalid value
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "ap-northeast-1")
+
+        # Verify None returned for invalid JPY
+        assert price is None
+
+    def test_reserved_prefers_usd_over_jpy(self, pricing_service, mock_aws_client):
+        """Test reserved instance pricing prefers USD when both exist"""
+        mock_pricing_client = MagicMock()
+        # Return both USD and JPY
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {
+                        'attributes': {
+                            'location': 'Asia Pacific (Tokyo)',
+                            'instanceType': 't3.micro'
+                        }
+                    },
+                    'terms': {
+                        'Reserved': {
+                            'TERM123': {
+                                'termAttributes': {
+                                    'LeaseContractLength': '1yr',
+                                    'PurchaseOption': 'No Upfront',
+                                    'OfferingClass': 'standard'
+                                },
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'USD': '0.0052',  # Should use this
+                                            'JPY': '7.8'      # Should ignore this
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_reserved_instance_price(
+            "t3.micro", "ap-northeast-1", "1yr", "no_upfront"
+        )
+
+        # Verify USD used, not JPY conversion
+        assert price == 0.0052
+
+    def test_jpy_zero_value_skipped(self, pricing_service, mock_aws_client):
+        """Test zero JPY values are skipped"""
+        mock_pricing_client = MagicMock()
+        # Return zero JPY price
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'product': {'attributes': {'instanceType': 't3.micro'}},
+                    'terms': {
+                        'OnDemand': {
+                            'TERM123': {
+                                'priceDimensions': {
+                                    'DIM123': {
+                                        'unit': 'Hrs',
+                                        'pricePerUnit': {
+                                            'JPY': '0.0'  # Zero should be skipped
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "ap-northeast-1")
+
+        # Verify None returned for zero JPY
+        assert price is None
