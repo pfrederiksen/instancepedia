@@ -1,7 +1,7 @@
 """Tests for OptimizationModal"""
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from dataclasses import dataclass
 
 from textual.app import App
@@ -9,6 +9,25 @@ from textual.app import App
 from src.ui.optimization_modal import OptimizationModal
 from src.services.optimization_service import OptimizationReport, OptimizationRecommendation
 from src.models.instance_type import InstanceType, VCpuInfo, MemoryInfo, PricingInfo
+
+
+@pytest.fixture(autouse=True)
+def mock_aws_client():
+    """Auto-fixture to mock AsyncAWSClient for all tests"""
+    with patch('src.ui.optimization_modal.AsyncAWSClient') as mock_client_class:
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = AsyncMock()
+
+        # Mock get_ec2_client to return async context manager
+        mock_ec2 = AsyncMock()
+        mock_ec2.__aenter__.return_value = mock_ec2
+        mock_ec2.__aexit__.return_value = AsyncMock()
+        mock_ec2.describe_instance_types.return_value = {"InstanceTypes": []}
+        mock_client.get_ec2_client.return_value = mock_ec2
+
+        mock_client_class.return_value = mock_client
+        yield mock_client
 
 
 class OptimizationModalTestApp(App):

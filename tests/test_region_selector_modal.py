@@ -135,9 +135,11 @@ class TestRegionSelectorModal:
     async def test_modal_fetches_regions_on_mount(self):
         """Test that modal fetches accessible regions when mounted"""
         with patch('src.ui.region_selector_modal.AsyncAWSClient') as mock_client_class:
-            # Setup mocks
-            mock_client = Mock()
+            # Setup mocks with async context manager support
+            mock_client = AsyncMock()
             mock_client.get_accessible_regions = AsyncMock(return_value=["us-east-1", "us-west-2", "eu-west-1"])
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = AsyncMock()
             mock_client_class.return_value = mock_client
 
             app = RegionSelectorModalTestApp()
@@ -156,9 +158,11 @@ class TestRegionSelectorModal:
     async def test_modal_preselects_current_region(self):
         """Test that modal pre-selects the current region"""
         with patch('src.ui.region_selector_modal.AsyncAWSClient') as mock_client_class:
-            # Setup mocks
-            mock_client = Mock()
+            # Setup mocks with async context manager support
+            mock_client = AsyncMock()
             mock_client.get_accessible_regions = AsyncMock(return_value=["us-east-1", "us-west-2"])
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = AsyncMock()
             mock_client_class.return_value = mock_client
 
             app = RegionSelectorModalTestApp("t3.large", "us-east-1")

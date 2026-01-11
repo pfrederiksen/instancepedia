@@ -10,6 +10,24 @@ from src.ui.pricing_history_modal import PricingHistoryModal
 from src.services.pricing_service import SpotPriceHistory
 
 
+@pytest.fixture(autouse=True)
+def mock_aws_client():
+    """Auto-fixture to mock AsyncAWSClient for all tests"""
+    with patch('src.ui.pricing_history_modal.AsyncAWSClient') as mock_client_class:
+        with patch('src.ui.pricing_history_modal.AsyncPricingService') as mock_pricing_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            # Mock pricing service
+            mock_pricing = AsyncMock()
+            mock_pricing.get_spot_price_history.return_value = None
+            mock_pricing_class.return_value = mock_pricing
+
+            yield (mock_client, mock_pricing)
+
+
 class PricingHistoryModalTestApp(App):
     """Test app that hosts the PricingHistoryModal"""
 

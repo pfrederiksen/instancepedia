@@ -9,6 +9,33 @@ from src.ui.region_comparison_modal import RegionComparisonModal
 from src.models.instance_type import InstanceType, VCpuInfo, MemoryInfo, PricingInfo
 
 
+@pytest.fixture(autouse=True)
+def mock_aws_client():
+    """Auto-fixture to mock AsyncAWSClient for all tests"""
+    with patch('src.ui.region_comparison_modal.AsyncAWSClient') as mock_client_class:
+        with patch('src.ui.region_comparison_modal.AsyncPricingService') as mock_pricing_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = AsyncMock()
+
+            # Mock get_ec2_client to return async context manager
+            mock_ec2 = AsyncMock()
+            mock_ec2.__aenter__.return_value = mock_ec2
+            mock_ec2.__aexit__.return_value = AsyncMock()
+            mock_ec2.describe_instance_types.return_value = {"InstanceTypes": []}
+            mock_client.get_ec2_client.return_value = mock_ec2
+
+            mock_client_class.return_value = mock_client
+
+            # Mock pricing service
+            mock_pricing = AsyncMock()
+            mock_pricing.get_on_demand_price.return_value = None
+            mock_pricing.get_spot_price.return_value = None
+            mock_pricing_class.return_value = mock_pricing
+
+            yield (mock_client, mock_pricing)
+
+
 class RegionComparisonModalTestApp(App):
     """Test app that hosts the RegionComparisonModal"""
 
