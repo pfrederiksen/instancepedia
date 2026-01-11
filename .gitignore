@@ -59,3 +59,6 @@ htmlcov/
 *.pyc
 __pycache__/
 
+# Local task tracking (not for git)
+TASKS.md
+

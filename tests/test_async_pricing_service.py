@@ -154,6 +154,13 @@ class TestAsyncPricingServiceErrorScenarios:
     @pytest.mark.asyncio
     async def test_invalid_region_returns_none(self, mock_async_client, mock_cache, mock_settings):
         """Test that invalid region returns None and caches result"""
+        # Mock pricing client to return empty results for invalid region
+        mock_pricing = AsyncMock()
+        mock_pricing.get_products = AsyncMock(return_value={'PriceList': []})
+        mock_pricing.__aenter__ = AsyncMock(return_value=mock_pricing)
+        mock_pricing.__aexit__ = AsyncMock(return_value=None)
+        mock_async_client.get_pricing_client.return_value = mock_pricing
+
         with patch('src.services.async_pricing_service.get_pricing_cache', return_value=mock_cache):
             service = AsyncPricingService(mock_async_client, use_cache=True, settings=mock_settings)
 
