@@ -55,7 +55,7 @@ def run_cli(args) -> int:
     if hasattr(args, 'func'):
         return args.func(args)
     else:
-        print("Error: No command specified", file=sys.stderr)
+        print_error("No command specified")
         return 1
 
 
