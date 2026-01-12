@@ -12,6 +12,90 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## 🚫 GIT WORKFLOW - CRITICAL - READ THIS FIRST! 🚫
+
+### ⛔ NEVER PUSH DIRECTLY TO MAIN ⛔
+
+**This is the #1 rule. If you only remember one thing from this file, remember this:**
+
+```
+❌ WRONG: git push origin main
+✅ RIGHT: Create branch → Push branch → Create PR → Merge PR
+```
+
+### The Correct Workflow (MANDATORY)
+
+**For EVERY code change, follow these steps:**
+
+```bash
+# 1. Create a feature branch (ALWAYS do this first!)
+git checkout -b feature/your-feature-name
+
+# 2. Make your changes and commit
+git add .
+git commit -m "descriptive commit message"
+
+# 3. Push the BRANCH (not main!)
+git push -u origin feature/your-feature-name
+
+# 4. Create a pull request
+gh pr create --title "Brief description" --body "Detailed description"
+
+# 5. Merge the PR (squash merge)
+gh pr merge --squash --delete-branch
+```
+
+### Why This Matters
+
+- **Code Review**: PRs allow review before merging
+- **CI/CD**: Tests run on PRs before merge
+- **History**: Clean commit history with squash merges
+- **Reversibility**: Easy to revert a PR vs. individual commits
+- **Best Practice**: Industry standard workflow
+
+### Common Mistakes to Avoid
+
+❌ **DON'T:** Work on `main` branch directly
+✅ **DO:** Create a feature branch first
+
+❌ **DON'T:** `git push origin main`
+✅ **DO:** `git push origin feature/branch-name`
+
+❌ **DON'T:** Commit to main then try to create PR
+✅ **DO:** Create branch before making any commits
+
+### Pre-Push Hook Protection
+
+A git pre-push hook is installed at `.git/hooks/pre-push` that prevents direct pushes to main. If you see this error:
+
+```
+❌ ERROR: Direct push to 'main' is not allowed!
+```
+
+It means you're on the `main` branch. Switch to a feature branch:
+
+```bash
+# If you made commits on main by mistake:
+git checkout -b feature/fix-my-mistake  # Create branch from current state
+git push -u origin feature/fix-my-mistake  # Push branch
+gh pr create  # Create PR
+
+# Then reset main to match remote:
+git checkout main
+git reset --hard origin/main
+```
+
+### Setting Up the Hook (For Future Clones)
+
+The pre-push hook is in `.git/hooks/` (git-ignored). To set it up on a fresh clone:
+
+```bash
+# The hook will be documented in docs/ for manual installation
+chmod +x .git/hooks/pre-push
+```
+
+---
+
 ## Documentation Maintenance - CRITICAL
 
 **ALWAYS update documentation when making changes!** This is non-negotiable for project maintainability.
@@ -185,7 +269,7 @@ echo "y" | ./scripts/release.sh minor    # 0.2.2 -> 0.3.0
 ### Git Configuration
 - Email: `paul@paulfrederiksen.com`
 - Name: `Paul Frederiksen`
-- **Branch workflow**: Feature branches → PR → Squash merge to main
+- **Branch workflow**: See "🚫 GIT WORKFLOW - CRITICAL" section above (NEVER push to main!)
 
 ### Python Version
 Requires Python >= 3.9 (for async features and type hints)
