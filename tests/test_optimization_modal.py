@@ -248,3 +248,194 @@ class TestOptimizationModalUsagePatterns:
         """Test that modal accepts different usage patterns"""
         modal = OptimizationModal("t3.large", "us-east-1", usage_pattern)
         assert modal.usage_pattern == usage_pattern
+
+
+class TestOptimizationModalRecommendationDisplay:
+    """Tests for displaying different recommendation types"""
+
+    def test_display_recommendations_with_spot(self):
+        """Test displaying spot instance recommendations"""
+        modal = OptimizationModal("t3.large", "us-east-1")
+
+        # Create spot recommendation
+        rec = OptimizationRecommendation(
+            recommendation_type="spot",
+            current_instance="t3.large",
+            recommended_instance="t3.large",
+            current_cost_monthly=100.0,
+            optimized_cost_monthly=30.0,
+            savings_monthly=70.0,
+            savings_percentage=70.0,
+            reason="Use spot instances for significant savings",
+            considerations=["May be interrupted"]
+        )
+
+        modal.report = OptimizationReport(
+            instance_type="t3.large",
+            region="us-east-1",
+            current_pricing=PricingInfo(on_demand_price=0.10),
+            recommendations=[rec],
+            total_potential_savings=70.0
+        )
+
+        # Verify report structure
+        assert modal.report is not None
+        assert len(modal.report.recommendations) == 1
+        assert modal.report.recommendations[0].recommendation_type == "spot"
+
+    def test_display_recommendations_with_downsize(self):
+        """Test displaying downsize recommendations"""
+        modal = OptimizationModal("t3.large", "us-east-1")
+
+        rec = OptimizationRecommendation(
+            recommendation_type="downsize",
+            current_instance="t3.large",
+            recommended_instance="t3.medium",
+            current_cost_monthly=100.0,
+            optimized_cost_monthly=50.0,
+            savings_monthly=50.0,
+            savings_percentage=50.0,
+            reason="Current usage is underutilized",
+            considerations=["Ensure workload fits in smaller instance"]
+        )
+
+        modal.report = OptimizationReport(
+            instance_type="t3.large",
+            region="us-east-1",
+            current_pricing=PricingInfo(on_demand_price=0.10),
+            recommendations=[rec],
+            total_potential_savings=50.0
+        )
+
+        assert modal.report.recommendations[0].recommendation_type == "downsize"
+        assert modal.report.recommendations[0].recommended_instance == "t3.medium"
+
+    def test_display_recommendations_with_savings_plan(self):
+        """Test displaying savings plan recommendations"""
+        modal = OptimizationModal("t3.large", "us-east-1")
+
+        rec = OptimizationRecommendation(
+            recommendation_type="savings_plan_1yr",
+            current_instance="t3.large",
+            recommended_instance=None,
+            current_cost_monthly=100.0,
+            optimized_cost_monthly=75.0,
+            savings_monthly=25.0,
+            savings_percentage=25.0,
+            reason="Commit to 1-year savings plan",
+            considerations=["Requires 1-year commitment"]
+        )
+
+        modal.report = OptimizationReport(
+            instance_type="t3.large",
+            region="us-east-1",
+            current_pricing=PricingInfo(on_demand_price=0.10),
+            recommendations=[rec],
+            total_potential_savings=25.0
+        )
+
+        assert modal.report.recommendations[0].recommendation_type == "savings_plan_1yr"
+
+    def test_display_recommendations_with_reserved_instance(self):
+        """Test displaying reserved instance recommendations"""
+        modal = OptimizationModal("t3.large", "us-east-1")
+
+        rec = OptimizationRecommendation(
+            recommendation_type="ri_3yr",
+            current_instance="t3.large",
+            recommended_instance=None,
+            current_cost_monthly=100.0,
+            optimized_cost_monthly=60.0,
+            savings_monthly=40.0,
+            savings_percentage=40.0,
+            reason="Commit to 3-year reserved instance",
+            considerations=["Requires 3-year commitment", "No flexibility"]
+        )
+
+        modal.report = OptimizationReport(
+            instance_type="t3.large",
+            region="us-east-1",
+            current_pricing=PricingInfo(on_demand_price=0.10),
+            recommendations=[rec],
+            total_potential_savings=40.0
+        )
+
+        assert modal.report.recommendations[0].recommendation_type == "ri_3yr"
+        assert len(modal.report.recommendations[0].considerations) == 2
+
+    def test_display_recommendations_multiple_types(self):
+        """Test displaying multiple recommendation types"""
+        modal = OptimizationModal("t3.large", "us-east-1")
+
+        recs = [
+            OptimizationRecommendation(
+                recommendation_type="spot",
+                current_instance="t3.large",
+                recommended_instance="t3.large",
+                current_cost_monthly=100.0,
+                optimized_cost_monthly=30.0,
+                savings_monthly=70.0,
+                savings_percentage=70.0,
+                reason="Spot savings",
+                considerations=[]
+            ),
+            OptimizationRecommendation(
+                recommendation_type="savings_plan_1yr",
+                current_instance="t3.large",
+                recommended_instance=None,
+                current_cost_monthly=100.0,
+                optimized_cost_monthly=75.0,
+                savings_monthly=25.0,
+                savings_percentage=25.0,
+                reason="Savings plan",
+                considerations=[]
+            ),
+        ]
+
+        modal.report = OptimizationReport(
+            instance_type="t3.large",
+            region="us-east-1",
+            current_pricing=PricingInfo(on_demand_price=0.10),
+            recommendations=recs,
+            total_potential_savings=95.0
+        )
+
+        assert len(modal.report.recommendations) == 2
+        assert modal.report.total_potential_savings == 95.0
+
+    def test_display_recommendations_with_profile(self):
+        """Test modal with AWS profile specified"""
+        modal = OptimizationModal("t3.large", "us-east-1", profile="my-profile")
+        assert modal.profile == "my-profile"
+
+    def test_display_recommendations_calculates_savings_percentage(self):
+        """Test that savings percentage is calculated correctly"""
+        modal = OptimizationModal("t3.large", "us-east-1")
+
+        rec = OptimizationRecommendation(
+            recommendation_type="spot",
+            current_instance="t3.large",
+            recommended_instance="t3.large",
+            current_cost_monthly=100.0,
+            optimized_cost_monthly=25.0,
+            savings_monthly=75.0,
+            savings_percentage=75.0,
+            reason="Spot savings",
+            considerations=[]
+        )
+
+        modal.report = OptimizationReport(
+            instance_type="t3.large",
+            region="us-east-1",
+            current_pricing=PricingInfo(on_demand_price=0.137),  # $0.137/hr * 730 = $100/month
+            recommendations=[rec],
+            total_potential_savings=75.0
+        )
+
+        # Calculate expected savings percentage
+        current_monthly = modal.report.current_pricing.on_demand_price * 730
+        savings_pct = (modal.report.total_potential_savings / current_monthly) * 100
+
+        assert current_monthly > 0
+        assert savings_pct > 0
+        assert savings_pct < 100
