@@ -1749,3 +1749,293 @@ class TestPrivateHelperMethods:
             # Large attempt number: 2^10 = 1024, but should cap at 30
             pricing_service._handle_throttling(attempt=10, max_retries=15, error=error)
             mock_sleep.assert_called_with(30)
+
+
+class TestOnDemandPricingEdgeCases:
+    """Test edge cases in on-demand pricing"""
+
+    def test_on_demand_fallback_pricing_with_jpy(self, pricing_service, mock_aws_client):
+        """Test fallback pricing when no Hrs unit found, uses JPY conversion"""
+        pricing_service.cache.get.return_value = None
+
+        # Mock pricing with no "Hrs" unit, only JPY price
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'OnDemand': {
+                            'TERM_123': {
+                                'priceDimensions': {
+                                    'DIM_123': {
+                                        'unit': 'Quantity',  # Not "Hrs"
+                                        'pricePerUnit': {
+                                            'JPY': '15.0'  # 15 JPY = 0.10 USD at 150 rate
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "us-east-1")
+
+        # Should convert JPY to USD: 15.0 / 150.0 = 0.10
+        assert price == 0.10
+
+    def test_on_demand_fallback_pricing_with_usd(self, pricing_service, mock_aws_client):
+        """Test fallback pricing when no Hrs unit found, uses USD"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'OnDemand': {
+                            'TERM_123': {
+                                'priceDimensions': {
+                                    'DIM_123': {
+                                        'unit': 'Quantity',
+                                        'pricePerUnit': {
+                                            'USD': '0.0104'
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        price = pricing_service.get_on_demand_price("t3.micro", "us-east-1")
+
+        assert price == 0.0104
+
+    def test_on_demand_warns_on_high_price(self, pricing_service, mock_aws_client):
+        """Test warning logged for unusually high prices > $1000/hr"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        # Use fallback path (no "Hrs" unit) to reach the warning code
+        mock_pricing_client.get_products.return_value = {
+            'PriceList': [
+                json.dumps({
+                    'terms': {
+                        'OnDemand': {
+                            'TERM_123': {
+                                'priceDimensions': {
+                                    'DIM_123': {
+                                        'unit': 'Quantity',  # Not "Hrs" - triggers fallback
+                                        'pricePerUnit': {
+                                            'USD': '1500.00'  # Unusually high
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            ]
+        }
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('src.services.pricing_service.DebugLog.log') as mock_log:
+            price = pricing_service.get_on_demand_price("p5.48xlarge", "us-east-1")
+
+            # Should return the price despite warning
+            assert price == 1500.00
+
+            # Should log warning about unusual price
+            warning_calls = [call for call in mock_log.call_args_list
+                           if 'Unusual price' in str(call)]
+            assert len(warning_calls) > 0
+
+    def test_on_demand_access_denied_raises(self, pricing_service, mock_aws_client):
+        """Test AccessDeniedException raises exception"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        error = ClientError(
+            {
+                'Error': {
+                    'Code': 'AccessDeniedException',
+                    'Message': 'User not authorized'
+                }
+            },
+            'GetProducts'
+        )
+        mock_pricing_client.get_products.side_effect = error
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        # Should raise exception for access denied
+        with pytest.raises(Exception, match="AWS Pricing API error"):
+            pricing_service.get_on_demand_price("t3.micro", "us-east-1")
+
+    def test_on_demand_rate_limit_exhausted(self, pricing_service, mock_aws_client):
+        """Test returns None when rate limit retries exhausted"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+        error = ClientError(
+            {
+                'Error': {
+                    'Code': 'Throttling',
+                    'Message': 'Rate exceeded'
+                }
+            },
+            'GetProducts'
+        )
+        mock_pricing_client.get_products.side_effect = error
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):  # Skip actual sleep
+            price = pricing_service.get_on_demand_price("t3.micro", "us-east-1", max_retries=2)
+
+            # Should return None after exhausting retries
+            assert price is None
+
+    def test_on_demand_botocore_error_retry(self, pricing_service, mock_aws_client):
+        """Test retry logic for BotoCoreError"""
+        pricing_service.cache.get.return_value = None
+
+        mock_pricing_client = MagicMock()
+
+        # First 2 attempts fail with BotoCoreError, 3rd succeeds
+        botocore_error = BotoCoreError()
+        mock_pricing_client.get_products.side_effect = [
+            botocore_error,
+            botocore_error,
+            {
+                'PriceList': [
+                    json.dumps({
+                        'terms': {
+                            'OnDemand': {
+                                'TERM_123': {
+                                    'priceDimensions': {
+                                        'DIM_123': {
+                                            'unit': 'Hrs',
+                                            'pricePerUnit': {'USD': '0.0104'}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    })
+                ]
+            }
+        ]
+        mock_aws_client.pricing_client = mock_pricing_client
+
+        with patch('time.sleep'):  # Skip actual sleep
+            price = pricing_service.get_on_demand_price("t3.micro", "us-east-1", max_retries=3)
+
+            # Should eventually succeed after retries
+            assert price == 0.0104
+            assert mock_pricing_client.get_products.call_count == 3
+
+
+class TestSpotBatchErrorHandling:
+    """Test error handling in get_spot_prices_batch"""
+
+    def test_spot_batch_rate_limit_exhausted(self, pricing_service, mock_aws_client):
+        """Test spot batch handles rate limit exhaustion"""
+        mock_ec2_client = MagicMock()
+        error = ClientError(
+            {
+                'Error': {
+                    'Code': 'RequestLimitExceeded',
+                    'Message': 'Request limit exceeded'
+                }
+            },
+            'DescribeSpotPriceHistory'
+        )
+        mock_ec2_client.describe_spot_price_history.side_effect = error
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        with patch('time.sleep'):  # Skip actual sleep
+            result = pricing_service.get_spot_prices_batch(
+                ["t3.micro", "t3.small"],
+                "us-east-1",
+                max_retries=2
+            )
+
+            # Should return None for all instances after exhausting retries
+            assert result == {"t3.micro": None, "t3.small": None}
+
+    def test_spot_batch_client_error_no_retry(self, pricing_service, mock_aws_client):
+        """Test spot batch doesn't retry non-rate-limit ClientError"""
+        mock_ec2_client = MagicMock()
+        error = ClientError(
+            {
+                'Error': {
+                    'Code': 'InvalidParameterValue',
+                    'Message': 'Invalid parameter'
+                }
+            },
+            'DescribeSpotPriceHistory'
+        )
+        mock_ec2_client.describe_spot_price_history.side_effect = error
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(
+            ["t3.micro"],
+            "us-east-1",
+            max_retries=3
+        )
+
+        # Should not retry for non-rate-limit errors
+        assert mock_ec2_client.describe_spot_price_history.call_count == 1
+        assert result == {"t3.micro": None}
+
+    def test_spot_batch_ensures_all_instances_in_result(self, pricing_service, mock_aws_client):
+        """Test spot batch ensures all requested instances are in result"""
+        mock_ec2_client = MagicMock()
+        # Return data for only one instance
+        mock_ec2_client.describe_spot_price_history.return_value = {
+            'SpotPriceHistory': [
+                {
+                    'InstanceType': 't3.micro',
+                    'SpotPrice': '0.0052',
+                    'Timestamp': '2024-01-01T12:00:00Z'
+                }
+            ]
+        }
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        result = pricing_service.get_spot_prices_batch(
+            ["t3.micro", "t3.small", "t3.medium"],  # Request 3 instances
+            "us-east-1"
+        )
+
+        # All requested instances should be in result
+        assert "t3.micro" in result
+        assert "t3.small" in result
+        assert "t3.medium" in result
+        # Missing ones should be None
+        assert result["t3.micro"] == 0.0052
+        assert result["t3.small"] is None
+        assert result["t3.medium"] is None
+
+    def test_spot_batch_top_level_exception_returns_none_for_all(self, pricing_service, mock_aws_client):
+        """Test spot batch returns None for all on top-level exception"""
+        mock_ec2_client = MagicMock()
+        # Raise an exception that can't be retried
+        mock_ec2_client.describe_spot_price_history.side_effect = RuntimeError("Unexpected error")
+        mock_aws_client.ec2_client = mock_ec2_client
+
+        with patch('time.sleep'):  # Skip actual sleep during retries
+            result = pricing_service.get_spot_prices_batch(
+                ["t3.micro", "t3.small"],
+                "us-east-1",
+                max_retries=2
+            )
+
+            # Should return None for all instances after exhausting retries
+            assert result == {"t3.micro": None, "t3.small": None}
