@@ -578,3 +578,134 @@ try:
 except Exception as e:
     logger.error(f"Operation failed: {e}", exc_info=True)
 ```
+
+## Code Organization & Refactoring Patterns
+
+The project follows consistent refactoring patterns to maintain clean, testable code:
+
+### Method Extraction Pattern
+
+When methods exceed ~100 lines or handle multiple responsibilities, extract focused helper methods:
+
+**Pattern:**
+- Main method becomes an orchestrator (10-20 lines)
+- Extract each logical phase into a focused helper method
+- Each helper has single responsibility (SRP)
+- Use descriptive names that explain what, not how
+
+**Example - Filter Application (`src/ui/instance_list.py`):**
+
+```python
+def _apply_filters(self) -> None:
+    """Apply search and attribute filters"""
+    filtered = self.all_instance_types
+
+    # Apply filters in phases - each helper is focused
+    filtered = self._apply_search_filter(filtered)
+    filtered = self._apply_vcpu_filters(filtered)
+    filtered = self._apply_memory_filters(filtered)
+    filtered = self._apply_boolean_filters(filtered)
+    filtered = self._apply_processor_filters(filtered)
+    filtered = self._apply_network_filters(filtered)
+    filtered = self._apply_family_filter(filtered)
+    filtered = self._apply_storage_filters(filtered)
+    filtered = self._apply_price_filter(filtered)
+
+    self.filtered_instance_types = filtered
+    self._populate_tree()
+
+def _apply_search_filter(self, instances: list[InstanceType]) -> list[InstanceType]:
+    """Apply search term filter"""
+    if not self.search_term:
+        return instances
+    return [
+        inst for inst in instances
+        if self.search_term in inst.instance_type.lower()
+    ]
+```
+
+**Benefits:**
+- Main method is readable at a glance
+- Each filter phase is independently testable
+- Easy to add/remove/reorder filters
+- Clear separation of concerns
+
+**Before/After Metrics:**
+- `_apply_filters()`: 151 lines → 18 lines (main) + 9 focused helpers
+- Coverage improved: 53% → 56%
+- Testability: Can now test individual filter logic in isolation
+
+### Parser Organization Pattern
+
+Complex argument parsers should be organized by command/feature:
+
+**Pattern:**
+- One `create_parser()` orchestrator
+- Extract subparser creation into focused functions
+- Group related commands (e.g., preset commands together)
+
+**Example (`src/cli/parser.py`):**
+
+```python
+def create_parser() -> argparse.ArgumentParser:
+    """Create and configure the argument parser"""
+    parser = argparse.ArgumentParser(...)
+
+    # Add common arguments
+    _add_common_arguments(parser)
+
+    # Add subcommands
+    subparsers = parser.add_subparsers(...)
+    _add_list_command(subparsers)
+    _add_detail_command(subparsers)
+    _add_compare_command(subparsers)
+    _add_presets_commands(subparsers)
+    _add_regions_command(subparsers)
+
+    return parser
+
+def _add_presets_commands(subparsers) -> None:
+    """Add preset-related subcommands"""
+    presets_parser = subparsers.add_parser(...)
+    presets_subparsers = presets_parser.add_subparsers(...)
+    # Add preset subcommands
+```
+
+### UI Rendering Pattern
+
+Large rendering methods should be split by section:
+
+**Pattern:**
+- Main `compose()` or render method orchestrates layout
+- Extract each section into focused render method
+- Each render method returns widgets for its section
+
+**Example (`src/ui/instance_detail.py`):**
+
+```python
+def compose(self) -> ComposeResult:
+    """Compose the detail view"""
+    with Vertical(id="detail-container"):
+        yield self._render_header()
+        yield self._render_specs()
+        yield self._render_pricing()
+        yield self._render_footer()
+```
+
+### When to Refactor
+
+Refactor when any of these conditions occur:
+- **Method length**: > 100 lines (hard limit: 150 lines)
+- **Multiple responsibilities**: Method does > 1 logical task
+- **Deep nesting**: > 3 levels of indentation
+- **Hard to test**: Can't easily test specific behavior in isolation
+- **Unclear flow**: Requires comments to explain sections
+
+### Refactoring Workflow
+
+1. **Read tests first** - Ensure tests exist and pass
+2. **Identify logical sections** - Find natural boundaries in the code
+3. **Extract one section at a time** - Small, incremental changes
+4. **Run tests after each extraction** - Verify no regressions
+5. **Update documentation** - Add examples to this file
+6. **Commit with clear message** - Explain what was extracted and why

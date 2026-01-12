@@ -847,6 +847,99 @@ async def test_get_ec2_client_recreates_after_error():
 - Not mocking both `__aenter__` and `__aexit__` for context managers
 - Not using `await` when calling async methods in tests
 
+### Edge Case & Validation Testing Pattern
+
+Test validation functions and utility methods with comprehensive edge case coverage.
+
+**When to use:**
+- Testing validation functions (e.g., `is_valid_region()`)
+- Testing utility functions with string inputs
+- Testing boundary conditions and malformed inputs
+- Testing functions that should gracefully handle unexpected input
+
+**Pattern:**
+
+```python
+class TestIsValidRegion:
+    """Tests for is_valid_region() function with comprehensive edge cases"""
+
+    def test_is_valid_region_with_valid_regions(self):
+        """Test is_valid_region with valid region codes"""
+        assert is_valid_region('us-east-1') is True
+        assert is_valid_region('eu-west-1') is True
+        assert is_valid_region('ap-southeast-1') is True
+
+    def test_is_valid_region_with_invalid_regions(self):
+        """Test is_valid_region with invalid region codes"""
+        assert is_valid_region('invalid-region') is False
+        assert is_valid_region('us-east-99') is False
+
+    def test_is_valid_region_with_empty_string(self):
+        """Test is_valid_region with empty string (edge case)"""
+        assert is_valid_region('') is False
+
+    def test_is_valid_region_case_sensitivity(self):
+        """Test that is_valid_region is case-sensitive"""
+        assert is_valid_region('us-east-1') is True
+        assert is_valid_region('US-EAST-1') is False  # Wrong case
+
+    def test_is_valid_region_with_whitespace(self):
+        """Test is_valid_region with whitespace (edge case)"""
+        assert is_valid_region(' us-east-1') is False  # Leading space
+        assert is_valid_region('us-east-1 ') is False  # Trailing space
+        assert is_valid_region('   ') is False  # Only spaces
+
+    def test_is_valid_region_with_special_characters(self):
+        """Test is_valid_region with special characters (edge case)"""
+        assert is_valid_region('us-east-1!') is False
+        assert is_valid_region('us@east-1') is False
+        assert is_valid_region('us-east-1\n') is False  # Newline
+        assert is_valid_region('us-east-1\t') is False  # Tab
+
+    def test_is_valid_region_with_partial_matches(self):
+        """Test is_valid_region doesn't accept partial matches"""
+        assert is_valid_region('us-east') is False  # Missing number
+        assert is_valid_region('east-1') is False   # Missing region
+```
+
+**Key aspects:**
+1. **Valid inputs**: Test all expected valid cases
+2. **Invalid inputs**: Test clearly invalid cases
+3. **Empty/None-like**: Test empty strings, whitespace, "None", "null"
+4. **Case sensitivity**: Test uppercase, lowercase, mixed case
+5. **Whitespace**: Test leading/trailing spaces, tabs, newlines
+6. **Special characters**: Test punctuation, symbols that shouldn't be valid
+7. **Partial matches**: Test that validation is strict (not substring matching)
+8. **Boundary conditions**: Test edge of valid ranges (if applicable)
+
+**Benefits:**
+- Prevents crashes from unexpected input
+- Documents expected behavior for all input types
+- Achieves high coverage (often 100% for simple functions)
+- Makes refactoring safer (tests catch behavior changes)
+
+**Example - region.py edge case tests:**
+```python
+# tests/test_region.py
+class TestIsValidRegion:
+    """20 comprehensive tests covering all edge cases"""
+
+    # Valid cases (4 tests)
+    # Invalid cases (3 tests)
+    # Edge cases (13 tests):
+    #   - Empty string
+    #   - None-like strings
+    #   - Case sensitivity (3 tests)
+    #   - Whitespace (4 tests)
+    #   - Special characters (4 tests)
+    #   - Partial matches (3 tests)
+```
+
+**Coverage achieved:**
+- `region.py`: 0% → 100% (5 lines, all covered)
+- Test count: +20 tests
+- Verifies graceful handling of all invalid inputs
+
 ### Testing Services
 
 When adding new services or modifying existing ones, always add comprehensive tests:
