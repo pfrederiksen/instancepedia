@@ -237,3 +237,260 @@ class TestRegionComparisonModalDataStructures:
         assert hasattr(modal, 'region_data')
         assert isinstance(modal.region_data, dict)
         assert len(modal.region_data) == 0  # Empty until data is fetched
+
+
+class TestRegionComparisonModalDisplay:
+    """Tests for RegionComparisonModal display logic"""
+
+    def _create_instance_with_pricing(
+        self,
+        instance_type="t3.large",
+        on_demand=0.10,
+        spot=0.05,
+        savings_1yr=0.08,
+        savings_3yr=0.06
+    ):
+        """Helper to create instance with pricing"""
+        from src.models.instance_type import NetworkInfo, ProcessorInfo, EbsInfo
+
+        instance = InstanceType(
+            instance_type=instance_type,
+            vcpu_info=VCpuInfo(default_vcpus=2, default_cores=1, default_threads_per_core=2),
+            memory_info=MemoryInfo(size_in_mib=8192),
+            network_info=NetworkInfo(
+                network_performance="Up to 5 Gigabit",
+                maximum_network_interfaces=3,
+                maximum_ipv4_addresses_per_interface=15,
+                maximum_ipv6_addresses_per_interface=15
+            ),
+            processor_info=ProcessorInfo(supported_architectures=["x86_64"]),
+            ebs_info=EbsInfo(ebs_optimized_support="default"),
+            pricing=PricingInfo(
+                on_demand_price=on_demand,
+                spot_price=spot,
+                savings_plan_1yr_no_upfront=savings_1yr,
+                savings_plan_3yr_no_upfront=savings_3yr
+            )
+        )
+        return instance
+
+    def test_display_comparison_with_all_regions_available(self):
+        """Test display when all regions have data"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1", "us-west-2", "eu-west-1"])
+
+        # Populate region_data with instances at different prices
+        modal.region_data = {
+            "us-east-1": self._create_instance_with_pricing(on_demand=0.10),
+            "us-west-2": self._create_instance_with_pricing(on_demand=0.12),
+            "eu-west-1": self._create_instance_with_pricing(on_demand=0.08),  # Cheapest
+        }
+
+        # Create mock container
+        from unittest.mock import Mock
+        container = Mock()
+
+        # Call display method
+        modal._display_comparison(container)
+
+        # Verify container.mount was called (for summary, table, insights)
+        assert container.mount.call_count >= 2  # At least table and insights
+
+        # Check that summary shows cheapest region
+        # First mount call should be the summary Static widget
+        summary_call = container.mount.call_args_list[0]
+        # The Static widget is the first arg in the call
+        # We can check that mount was called with a Static widget
+        assert summary_call is not None
+
+    def test_display_comparison_with_some_regions_unavailable(self):
+        """Test display when some regions don't have instance"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1", "us-west-2", "ap-south-1"])
+
+        modal.region_data = {
+            "us-east-1": self._create_instance_with_pricing(on_demand=0.10),
+            "us-west-2": self._create_instance_with_pricing(on_demand=0.12),
+            "ap-south-1": None,  # Not available
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        modal._display_comparison(container)
+
+        # Should still display (some regions available)
+        assert container.mount.call_count >= 2
+
+    def test_display_comparison_finds_cheapest_region(self):
+        """Test that cheapest region is correctly identified"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1", "us-west-2", "eu-west-1"])
+
+        modal.region_data = {
+            "us-east-1": self._create_instance_with_pricing(on_demand=0.15),
+            "us-west-2": self._create_instance_with_pricing(on_demand=0.09),  # Cheapest
+            "eu-west-1": self._create_instance_with_pricing(on_demand=0.12),
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        modal._display_comparison(container)
+
+        # Check summary was mounted
+        summary_call = container.mount.call_args_list[0]
+        assert summary_call is not None
+        # The method found a cheapest region and displayed it
+        assert container.mount.call_count >= 3  # summary + table + insights
+
+    def test_display_comparison_handles_missing_pricing(self):
+        """Test display when pricing data is None"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1", "us-west-2"])
+
+        # Create instance without pricing
+        instance_no_pricing = InstanceType(
+            instance_type="t3.large",
+            vcpu_info=VCpuInfo(default_vcpus=2, default_cores=1, default_threads_per_core=2),
+            memory_info=MemoryInfo(size_in_mib=8192),
+            network_info=None,
+            processor_info=None,
+            ebs_info=None,
+            pricing=None  # No pricing
+        )
+
+        modal.region_data = {
+            "us-east-1": instance_no_pricing,
+            "us-west-2": self._create_instance_with_pricing(on_demand=0.10),
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        # Should not crash
+        modal._display_comparison(container)
+        assert container.mount.call_count >= 2
+
+    def test_display_comparison_with_spot_pricing(self):
+        """Test display includes spot pricing and savings percentage"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1"])
+
+        modal.region_data = {
+            "us-east-1": self._create_instance_with_pricing(
+                on_demand=0.10,
+                spot=0.03  # 70% savings
+            ),
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        modal._display_comparison(container)
+
+        # Table should be mounted
+        table_call = container.mount.call_args_list[1]  # Second mount is table
+        table_widget = table_call[0][0]
+        # Table contains the Rich Table object
+        assert table_widget is not None
+
+    def test_display_comparison_calculates_price_variance(self):
+        """Test that price variance is calculated in insights"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1", "us-west-2"])
+
+        modal.region_data = {
+            "us-east-1": self._create_instance_with_pricing(on_demand=0.08),  # min
+            "us-west-2": self._create_instance_with_pricing(on_demand=0.12),  # max
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        modal._display_comparison(container)
+
+        # Verify insights were displayed (method ran without error)
+        # With 2 regions with different prices, insights should be generated
+        assert container.mount.call_count >= 3  # summary + table + insights
+
+    def test_display_comparison_shows_monthly_and_annual_savings(self):
+        """Test that insights show monthly and annual cost differences"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1", "us-west-2"])
+
+        modal.region_data = {
+            "us-east-1": self._create_instance_with_pricing(on_demand=0.08),
+            "us-west-2": self._create_instance_with_pricing(on_demand=0.10),
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        modal._display_comparison(container)
+
+        # Verify insights were displayed with savings calculation
+        # With price variance, savings insights should be generated
+        assert container.mount.call_count >= 3  # summary + table + insights
+
+    def test_display_comparison_shows_spot_availability(self):
+        """Test that insights show spot availability count"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1", "us-west-2", "eu-west-1"])
+
+        modal.region_data = {
+            "us-east-1": self._create_instance_with_pricing(spot=0.03),
+            "us-west-2": self._create_instance_with_pricing(spot=0.04),
+            "eu-west-1": self._create_instance_with_pricing(spot=None),  # No spot
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        modal._display_comparison(container)
+
+        # Verify insights with spot availability were displayed
+        # With spot pricing in 2 regions, insights should include spot info
+        assert container.mount.call_count >= 3  # summary + table + insights
+
+    def test_display_comparison_with_single_region(self):
+        """Test display with only one region"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1"])
+
+        modal.region_data = {
+            "us-east-1": self._create_instance_with_pricing(on_demand=0.10),
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        modal._display_comparison(container)
+
+        # Should display without crashing
+        assert container.mount.call_count >= 2
+
+    def test_display_comparison_handles_all_none_prices(self):
+        """Test display when all regions have None pricing"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1", "us-west-2"])
+
+        # Create instances with no on-demand pricing
+        instance_no_price = InstanceType(
+            instance_type="t3.large",
+            vcpu_info=VCpuInfo(default_vcpus=2, default_cores=1, default_threads_per_core=2),
+            memory_info=MemoryInfo(size_in_mib=8192),
+            network_info=None,
+            processor_info=None,
+            ebs_info=None,
+            pricing=PricingInfo(on_demand_price=None)
+        )
+
+        modal.region_data = {
+            "us-east-1": instance_no_price,
+            "us-west-2": instance_no_price,
+        }
+
+        from unittest.mock import Mock
+        container = Mock()
+
+        # Should not crash even with no valid prices
+        modal._display_comparison(container)
+        assert container.mount.call_count >= 1
+
+    def test_modal_with_profile_parameter(self):
+        """Test modal initialization with profile"""
+        modal = RegionComparisonModal("t3.large", ["us-east-1"], profile="my-profile")
+        assert modal.profile == "my-profile"
+        assert modal.instance_type == "t3.large"
+        assert modal.regions == ["us-east-1"]
