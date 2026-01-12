@@ -66,6 +66,276 @@ class InstanceDetail(Screen):
         # Fetch spot price and savings plans if not already loaded
         self._fetch_pricing_if_needed()
 
+    def _render_compute_section(self, inst: InstanceType, lines: list) -> None:
+        """Render compute resources section (CPU, Memory, GPU)
+
+        Args:
+            inst: The instance type to render
+            lines: List to append formatted lines to
+        """
+        # Compute
+        lines.append("Compute")
+        lines.append(f"  • vCPU:              {inst.vcpu_info.default_vcpus}")
+        if inst.vcpu_info.default_cores:
+            lines.append(f"  • Default Cores:     {inst.vcpu_info.default_cores}")
+        if inst.vcpu_info.default_threads_per_core:
+            lines.append(f"  • Threads per Core:  {inst.vcpu_info.default_threads_per_core}")
+        if inst.processor_info.sustained_clock_speed_in_ghz:
+            lines.append(f"  • Sustained Clock:   {inst.processor_info.sustained_clock_speed_in_ghz} GHz")
+        lines.append("")
+
+        # Memory
+        lines.append("Memory")
+        memory_gb = inst.memory_info.size_in_gb
+        lines.append(f"  • Total Memory:      {memory_gb:.2f} GB ({inst.memory_info.size_in_mib} MiB)")
+        lines.append("")
+
+        # GPU/Accelerators
+        if inst.gpu_info:
+            lines.append("GPU/Accelerators")
+
+            # Check if this is a fractional/shared GPU instance
+            if inst.gpu_info.is_fractional_gpu:
+                lines.append(f"  • Type:              Shared/Fractional GPU")
+                for gpu_device in inst.gpu_info.gpus:
+                    gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
+                    lines.append(f"  • GPU:               {gpu_name}")
+                    if gpu_device.memory_in_gb:
+                        lines.append(f"  • GPU Memory:        {gpu_device.memory_in_gb:.1f} GB")
+                lines.append(f"  • Note:              Fractional GPU allocation (e.g., g6f instances)")
+            else:
+                lines.append(f"  • Total GPUs:        {inst.gpu_info.total_gpu_count}")
+
+                # Show details for each GPU device type
+                for gpu_device in inst.gpu_info.gpus:
+                    gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
+                    lines.append(f"  • {gpu_name}:")
+                    lines.append(f"      Count:           {gpu_device.count}")
+                    if gpu_device.memory_in_gb:
+                        lines.append(f"      Memory per GPU:  {gpu_device.memory_in_gb:.0f} GB")
+
+                # Total GPU memory if available
+                if inst.gpu_info.total_gpu_memory_in_gb:
+                    lines.append(f"  • Total GPU Memory:  {inst.gpu_info.total_gpu_memory_in_gb:.0f} GB")
+            lines.append("")
+
+    def _render_network_section(self, inst: InstanceType, lines: list) -> None:
+        """Render network section
+
+        Args:
+            inst: The instance type to render
+            lines: List to append formatted lines to
+        """
+        lines.append("Network")
+        lines.append(f"  • Performance:       {inst.network_info.network_performance}")
+        if inst.network_info.baseline_bandwidth_in_gbps or inst.network_info.peak_bandwidth_in_gbps:
+            bandwidth_display = inst.network_info.format_bandwidth()
+            lines.append(f"  • Bandwidth:         {bandwidth_display}")
+        lines.append(f"  • Max Interfaces:    {inst.network_info.maximum_network_interfaces}")
+        lines.append(f"  • Max IPv4 per ENI:  {inst.network_info.maximum_ipv4_addresses_per_interface}")
+        lines.append(f"  • Max IPv6 per ENI:  {inst.network_info.maximum_ipv6_addresses_per_interface}")
+        lines.append("")
+
+    def _render_storage_section(self, inst: InstanceType, lines: list) -> None:
+        """Render storage, EBS recommendations, architecture, and additional info sections
+
+        Args:
+            inst: The instance type to render
+            lines: List to append formatted lines to
+        """
+        # Storage
+        lines.append("Storage")
+        lines.append(f"  • EBS Optimized:     {inst.ebs_info.ebs_optimized_support.title()}")
+        if inst.ebs_info.ebs_optimized_info:
+            ebs_info = inst.ebs_info.ebs_optimized_info
+            if "MaximumBandwidthMbps" in ebs_info:
+                lines.append(f"  • EBS Bandwidth:     Up to {ebs_info['MaximumBandwidthMbps']} Mbps")
+            if "MaximumThroughputMBps" in ebs_info:
+                lines.append(f"  • EBS Throughput:    Up to {ebs_info['MaximumThroughputMBps']} MB/s")
+        if inst.instance_storage_info:
+            if inst.instance_storage_info.total_size_in_gb:
+                lines.append(f"  • Instance Storage:  {inst.instance_storage_info.total_size_in_gb} GB")
+            if inst.instance_storage_info.nvme_support:
+                lines.append(f"  • NVMe Support:      {inst.instance_storage_info.nvme_support}")
+        else:
+            lines.append("  • Instance Storage:  Not Available")
+        lines.append("")
+
+        # EBS Recommendations
+        if inst.ebs_info.ebs_optimized_support in ["default", "supported"]:
+            lines.append("Recommended EBS Volume Types")
+            recommendations = self.ebs_recommendation_service.get_recommendations(
+                inst.ebs_info.ebs_optimized_support,
+                inst.ebs_info.ebs_optimized_info
+            )
+            for i, rec in enumerate(recommendations[:3], 1):
+                lines.append(f"  {i}. {rec.volume_type.upper()} - {rec.description}")
+                if rec.iops_range:
+                    lines.append(f"     IOPS: {rec.iops_range}")
+                if rec.throughput_range:
+                    lines.append(f"     Throughput: {rec.throughput_range}")
+            lines.append("")
+
+        # Architecture & Virtualization
+        lines.append("Architecture & Virtualization")
+        arch_str = ", ".join(inst.processor_info.supported_architectures)
+        lines.append(f"  • Supported Architectures:  {arch_str}")
+        lines.append("")
+
+        # Additional Info
+        lines.append("Additional Info")
+        lines.append(f"  • Generation:                {inst.generation_label}")
+        lines.append(f"  • Burstable Performance:     {'Yes' if inst.burstable_performance_supported else 'No'}")
+        lines.append(f"  • Current Generation:        {'Yes' if inst.current_generation else 'No'}")
+        lines.append(f"  • Hibernation Supported:      {'Yes' if inst.hibernation_supported else 'No'}")
+        lines.append("")
+
+    def _render_pricing_section(self, inst: InstanceType, lines: list) -> None:
+        """Render pricing section (on-demand, spot, savings plans, reserved instances)
+
+        Args:
+            inst: The instance type to render
+            lines: List to append formatted lines to
+        """
+        # Pricing section
+        lines.append("━" * 60)
+        lines.append("")
+        lines.append("Pricing")
+        lines.append("")
+
+        if inst.pricing:
+            if inst.pricing.on_demand_price:
+                lines.append(f"  • On-Demand Price:        ${inst.pricing.on_demand_price:.4f} per hour")
+
+                # Cost calculator
+                monthly_cost = inst.pricing.calculate_monthly_cost()
+                annual_cost = inst.pricing.calculate_annual_cost()
+
+                if monthly_cost:
+                    lines.append(f"  • Monthly Cost (730 hrs): ${monthly_cost:.2f}")
+                if annual_cost:
+                    lines.append(f"  • Annual Cost (8,760 hrs): ${annual_cost:.2f}")
+
+                # Cost per vCPU and per GB RAM
+                cost_per_vcpu = inst.pricing.on_demand_price / inst.vcpu_info.default_vcpus if inst.vcpu_info.default_vcpus > 0 else None
+                cost_per_gb = inst.pricing.on_demand_price / inst.memory_info.size_in_gb if inst.memory_info.size_in_gb > 0 else None
+
+                if cost_per_vcpu:
+                    lines.append(f"  • Cost per vCPU/hour:     ${cost_per_vcpu:.6f}")
+                if cost_per_gb:
+                    lines.append(f"  • Cost per GB RAM/hour:   ${cost_per_gb:.6f}")
+            else:
+                lines.append("  • On-Demand Price:        Not available")
+
+            if inst.pricing.spot_price:
+                lines.append(f"  • Current Spot Price:     ${inst.pricing.spot_price:.4f} per hour")
+                if inst.pricing.on_demand_price:
+                    savings = ((inst.pricing.on_demand_price - inst.pricing.spot_price) / inst.pricing.on_demand_price) * 100
+                    lines.append(f"  • Spot Savings:           {savings:.1f}% off on-demand")
+            elif inst.pricing and inst.pricing.on_demand_price:
+                # Spot price is being fetched
+                lines.append("  • Current Spot Price:     Loading...")
+            else:
+                lines.append("  • Current Spot Price:     Not available")
+                # Provide helpful suggestions when spot is unavailable
+                is_metal = inst.instance_type and ".metal" in inst.instance_type
+                is_mac = inst.instance_type and inst.instance_type.startswith("mac")
+                if is_metal or is_mac:
+                    lines.append("    (Spot not supported for this instance type)")
+                else:
+                    lines.append("    (Try a different region or use Savings Plans)")
+
+            # Spot price history (7-day trends)
+            if inst.pricing and inst.pricing.spot_price:
+                lines.append("")
+                lines.append("  Spot Price Trends (7 days):")
+
+                # Fetch spot price history synchronously
+                # Note: This is done synchronously to keep the UI simple, but could be async
+                try:
+                    from src.config.settings import Settings
+                    settings = Settings()
+                    region = settings.aws_region
+
+                    # Get the region from the app's context if available
+                    # For now, we'll show a simplified message
+                    lines.append("    (Fetch spot history via CLI: instancepedia spot-history " + inst.instance_type + ")")
+                except Exception:
+                    pass
+
+            # Savings Plans pricing
+            lines.append("")
+            if inst.pricing.savings_plan_1yr_no_upfront:
+                lines.append(f"  • 1-Year Savings Plan:    ${inst.pricing.savings_plan_1yr_no_upfront:.4f} per hour")
+                savings_1yr = inst.pricing.calculate_savings_percentage("1yr")
+                if savings_1yr:
+                    lines.append(f"  • 1-Year Savings:         {savings_1yr:.1f}% off on-demand")
+            else:
+                lines.append("  • 1-Year Savings Plan:    Not available")
+
+            if inst.pricing.savings_plan_3yr_no_upfront:
+                lines.append(f"  • 3-Year Savings Plan:    ${inst.pricing.savings_plan_3yr_no_upfront:.4f} per hour")
+                savings_3yr = inst.pricing.calculate_savings_percentage("3yr")
+                if savings_3yr:
+                    lines.append(f"  • 3-Year Savings:         {savings_3yr:.1f}% off on-demand")
+            else:
+                lines.append("  • 3-Year Savings Plan:    Not available")
+
+            # Reserved Instances (Standard, 1-Year)
+            lines.append("")
+            lines.append("  Reserved Instances (Standard, 1-Year):")
+            if inst.pricing.ri_1yr_no_upfront:
+                savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_no_upfront")
+                savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                lines.append(f"  • No Upfront:             ${inst.pricing.ri_1yr_no_upfront:.4f} per hour{savings_str}")
+            else:
+                lines.append("  • No Upfront:             Not available")
+
+            if inst.pricing.ri_1yr_partial_upfront:
+                savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_partial_upfront")
+                savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                lines.append(f"  • Partial Upfront:        ${inst.pricing.ri_1yr_partial_upfront:.4f} per hour{savings_str} *")
+            else:
+                lines.append("  • Partial Upfront:        Not available")
+
+            if inst.pricing.ri_1yr_all_upfront:
+                savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_all_upfront")
+                savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                lines.append(f"  • All Upfront:            ${inst.pricing.ri_1yr_all_upfront:.4f} per hour{savings_str} *")
+            else:
+                lines.append("  • All Upfront:            Not available")
+
+            # Reserved Instances (Standard, 3-Year)
+            lines.append("")
+            lines.append("  Reserved Instances (Standard, 3-Year):")
+            if inst.pricing.ri_3yr_no_upfront:
+                savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_no_upfront")
+                savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                lines.append(f"  • No Upfront:             ${inst.pricing.ri_3yr_no_upfront:.4f} per hour{savings_str}")
+            else:
+                lines.append("  • No Upfront:             Not available")
+
+            if inst.pricing.ri_3yr_partial_upfront:
+                savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_partial_upfront")
+                savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                lines.append(f"  • Partial Upfront:        ${inst.pricing.ri_3yr_partial_upfront:.4f} per hour{savings_str} *")
+            else:
+                lines.append("  • Partial Upfront:        Not available")
+
+            if inst.pricing.ri_3yr_all_upfront:
+                savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_all_upfront")
+                savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
+                lines.append(f"  • All Upfront:            ${inst.pricing.ri_3yr_all_upfront:.4f} per hour{savings_str} *")
+            else:
+                lines.append("  • All Upfront:            Not available")
+
+            # Add note about effective hourly rates
+            lines.append("")
+            lines.append("  * Effective hourly rate (includes prorated upfront payment)")
+        else:
+            lines.append("  • Pricing information:     Not loaded")
+            lines.append("  • (Pricing is fetched in the background)")
+
     def _render_details(self) -> None:
         """Render the detailed information"""
         DebugLog.log("InstanceDetail._render_details() called")
@@ -91,248 +361,11 @@ class InstanceDetail(Screen):
                 lines.append("━" * 60)
                 lines.append("")
 
-            # Compute
-            lines.append("Compute")
-            lines.append(f"  • vCPU:              {inst.vcpu_info.default_vcpus}")
-            if inst.vcpu_info.default_cores:
-                lines.append(f"  • Default Cores:     {inst.vcpu_info.default_cores}")
-            if inst.vcpu_info.default_threads_per_core:
-                lines.append(f"  • Threads per Core:  {inst.vcpu_info.default_threads_per_core}")
-            if inst.processor_info.sustained_clock_speed_in_ghz:
-                lines.append(f"  • Sustained Clock:   {inst.processor_info.sustained_clock_speed_in_ghz} GHz")
-            lines.append("")
-
-            # Memory
-            lines.append("Memory")
-            memory_gb = inst.memory_info.size_in_gb
-            lines.append(f"  • Total Memory:      {memory_gb:.2f} GB ({inst.memory_info.size_in_mib} MiB)")
-            lines.append("")
-
-            # GPU/Accelerators
-            if inst.gpu_info:
-                lines.append("GPU/Accelerators")
-
-                # Check if this is a fractional/shared GPU instance
-                if inst.gpu_info.is_fractional_gpu:
-                    lines.append(f"  • Type:              Shared/Fractional GPU")
-                    for gpu_device in inst.gpu_info.gpus:
-                        gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
-                        lines.append(f"  • GPU:               {gpu_name}")
-                        if gpu_device.memory_in_gb:
-                            lines.append(f"  • GPU Memory:        {gpu_device.memory_in_gb:.1f} GB")
-                    lines.append(f"  • Note:              Fractional GPU allocation (e.g., g6f instances)")
-                else:
-                    lines.append(f"  • Total GPUs:        {inst.gpu_info.total_gpu_count}")
-
-                    # Show details for each GPU device type
-                    for gpu_device in inst.gpu_info.gpus:
-                        gpu_name = f"{gpu_device.manufacturer} {gpu_device.name}"
-                        lines.append(f"  • {gpu_name}:")
-                        lines.append(f"      Count:           {gpu_device.count}")
-                        if gpu_device.memory_in_gb:
-                            lines.append(f"      Memory per GPU:  {gpu_device.memory_in_gb:.0f} GB")
-
-                    # Total GPU memory if available
-                    if inst.gpu_info.total_gpu_memory_in_gb:
-                        lines.append(f"  • Total GPU Memory:  {inst.gpu_info.total_gpu_memory_in_gb:.0f} GB")
-                lines.append("")
-
-            # Network
-            lines.append("Network")
-            lines.append(f"  • Performance:       {inst.network_info.network_performance}")
-            if inst.network_info.baseline_bandwidth_in_gbps or inst.network_info.peak_bandwidth_in_gbps:
-                bandwidth_display = inst.network_info.format_bandwidth()
-                lines.append(f"  • Bandwidth:         {bandwidth_display}")
-            lines.append(f"  • Max Interfaces:    {inst.network_info.maximum_network_interfaces}")
-            lines.append(f"  • Max IPv4 per ENI:  {inst.network_info.maximum_ipv4_addresses_per_interface}")
-            lines.append(f"  • Max IPv6 per ENI:  {inst.network_info.maximum_ipv6_addresses_per_interface}")
-            lines.append("")
-
-            # Storage
-            lines.append("Storage")
-            lines.append(f"  • EBS Optimized:     {inst.ebs_info.ebs_optimized_support.title()}")
-            if inst.ebs_info.ebs_optimized_info:
-                ebs_info = inst.ebs_info.ebs_optimized_info
-                if "MaximumBandwidthMbps" in ebs_info:
-                    lines.append(f"  • EBS Bandwidth:     Up to {ebs_info['MaximumBandwidthMbps']} Mbps")
-                if "MaximumThroughputMBps" in ebs_info:
-                    lines.append(f"  • EBS Throughput:    Up to {ebs_info['MaximumThroughputMBps']} MB/s")
-            if inst.instance_storage_info:
-                if inst.instance_storage_info.total_size_in_gb:
-                    lines.append(f"  • Instance Storage:  {inst.instance_storage_info.total_size_in_gb} GB")
-                if inst.instance_storage_info.nvme_support:
-                    lines.append(f"  • NVMe Support:      {inst.instance_storage_info.nvme_support}")
-            else:
-                lines.append("  • Instance Storage:  Not Available")
-            lines.append("")
-
-            # EBS Recommendations
-            if inst.ebs_info.ebs_optimized_support in ["default", "supported"]:
-                lines.append("Recommended EBS Volume Types")
-                recommendations = self.ebs_recommendation_service.get_recommendations(
-                    inst.ebs_info.ebs_optimized_support,
-                    inst.ebs_info.ebs_optimized_info
-                )
-                for i, rec in enumerate(recommendations[:3], 1):
-                    lines.append(f"  {i}. {rec.volume_type.upper()} - {rec.description}")
-                    if rec.iops_range:
-                        lines.append(f"     IOPS: {rec.iops_range}")
-                    if rec.throughput_range:
-                        lines.append(f"     Throughput: {rec.throughput_range}")
-                lines.append("")
-
-            # Architecture & Virtualization
-            lines.append("Architecture & Virtualization")
-            arch_str = ", ".join(inst.processor_info.supported_architectures)
-            lines.append(f"  • Supported Architectures:  {arch_str}")
-            lines.append("")
-
-            # Additional Info
-            lines.append("Additional Info")
-            lines.append(f"  • Generation:                {inst.generation_label}")
-            lines.append(f"  • Burstable Performance:     {'Yes' if inst.burstable_performance_supported else 'No'}")
-            lines.append(f"  • Current Generation:        {'Yes' if inst.current_generation else 'No'}")
-            lines.append(f"  • Hibernation Supported:      {'Yes' if inst.hibernation_supported else 'No'}")
-            lines.append("")
-
-            # Pricing section
-            lines.append("━" * 60)
-            lines.append("")
-            lines.append("Pricing")
-            lines.append("")
-            
-            if inst.pricing:
-                if inst.pricing.on_demand_price:
-                    lines.append(f"  • On-Demand Price:        ${inst.pricing.on_demand_price:.4f} per hour")
-                    
-                    # Cost calculator
-                    monthly_cost = inst.pricing.calculate_monthly_cost()
-                    annual_cost = inst.pricing.calculate_annual_cost()
-                    
-                    if monthly_cost:
-                        lines.append(f"  • Monthly Cost (730 hrs): ${monthly_cost:.2f}")
-                    if annual_cost:
-                        lines.append(f"  • Annual Cost (8,760 hrs): ${annual_cost:.2f}")
-                    
-                    # Cost per vCPU and per GB RAM
-                    cost_per_vcpu = inst.pricing.on_demand_price / inst.vcpu_info.default_vcpus if inst.vcpu_info.default_vcpus > 0 else None
-                    cost_per_gb = inst.pricing.on_demand_price / inst.memory_info.size_in_gb if inst.memory_info.size_in_gb > 0 else None
-                    
-                    if cost_per_vcpu:
-                        lines.append(f"  • Cost per vCPU/hour:     ${cost_per_vcpu:.6f}")
-                    if cost_per_gb:
-                        lines.append(f"  • Cost per GB RAM/hour:   ${cost_per_gb:.6f}")
-                else:
-                    lines.append("  • On-Demand Price:        Not available")
-                
-                if inst.pricing.spot_price:
-                    lines.append(f"  • Current Spot Price:     ${inst.pricing.spot_price:.4f} per hour")
-                    if inst.pricing.on_demand_price:
-                        savings = ((inst.pricing.on_demand_price - inst.pricing.spot_price) / inst.pricing.on_demand_price) * 100
-                        lines.append(f"  • Spot Savings:           {savings:.1f}% off on-demand")
-                elif inst.pricing and inst.pricing.on_demand_price:
-                    # Spot price is being fetched
-                    lines.append("  • Current Spot Price:     Loading...")
-                else:
-                    lines.append("  • Current Spot Price:     Not available")
-                    # Provide helpful suggestions when spot is unavailable
-                    is_metal = inst.instance_type and ".metal" in inst.instance_type
-                    is_mac = inst.instance_type and inst.instance_type.startswith("mac")
-                    if is_metal or is_mac:
-                        lines.append("    (Spot not supported for this instance type)")
-                    else:
-                        lines.append("    (Try a different region or use Savings Plans)")
-
-                # Spot price history (7-day trends)
-                if inst.pricing and inst.pricing.spot_price:
-                    lines.append("")
-                    lines.append("  Spot Price Trends (7 days):")
-
-                    # Fetch spot price history synchronously
-                    # Note: This is done synchronously to keep the UI simple, but could be async
-                    try:
-                        from src.config.settings import Settings
-                        settings = Settings()
-                        region = settings.aws_region
-
-                        # Get the region from the app's context if available
-                        # For now, we'll show a simplified message
-                        lines.append("    (Fetch spot history via CLI: instancepedia spot-history " + inst.instance_type + ")")
-                    except Exception:
-                        pass
-
-                # Savings Plans pricing
-                lines.append("")
-                if inst.pricing.savings_plan_1yr_no_upfront:
-                    lines.append(f"  • 1-Year Savings Plan:    ${inst.pricing.savings_plan_1yr_no_upfront:.4f} per hour")
-                    savings_1yr = inst.pricing.calculate_savings_percentage("1yr")
-                    if savings_1yr:
-                        lines.append(f"  • 1-Year Savings:         {savings_1yr:.1f}% off on-demand")
-                else:
-                    lines.append("  • 1-Year Savings Plan:    Not available")
-
-                if inst.pricing.savings_plan_3yr_no_upfront:
-                    lines.append(f"  • 3-Year Savings Plan:    ${inst.pricing.savings_plan_3yr_no_upfront:.4f} per hour")
-                    savings_3yr = inst.pricing.calculate_savings_percentage("3yr")
-                    if savings_3yr:
-                        lines.append(f"  • 3-Year Savings:         {savings_3yr:.1f}% off on-demand")
-                else:
-                    lines.append("  • 3-Year Savings Plan:    Not available")
-
-                # Reserved Instances (Standard, 1-Year)
-                lines.append("")
-                lines.append("  Reserved Instances (Standard, 1-Year):")
-                if inst.pricing.ri_1yr_no_upfront:
-                    savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_no_upfront")
-                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
-                    lines.append(f"  • No Upfront:             ${inst.pricing.ri_1yr_no_upfront:.4f} per hour{savings_str}")
-                else:
-                    lines.append("  • No Upfront:             Not available")
-
-                if inst.pricing.ri_1yr_partial_upfront:
-                    savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_partial_upfront")
-                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
-                    lines.append(f"  • Partial Upfront:        ${inst.pricing.ri_1yr_partial_upfront:.4f} per hour{savings_str} *")
-                else:
-                    lines.append("  • Partial Upfront:        Not available")
-
-                if inst.pricing.ri_1yr_all_upfront:
-                    savings_ri = inst.pricing.calculate_savings_percentage("ri_1yr_all_upfront")
-                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
-                    lines.append(f"  • All Upfront:            ${inst.pricing.ri_1yr_all_upfront:.4f} per hour{savings_str} *")
-                else:
-                    lines.append("  • All Upfront:            Not available")
-
-                # Reserved Instances (Standard, 3-Year)
-                lines.append("")
-                lines.append("  Reserved Instances (Standard, 3-Year):")
-                if inst.pricing.ri_3yr_no_upfront:
-                    savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_no_upfront")
-                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
-                    lines.append(f"  • No Upfront:             ${inst.pricing.ri_3yr_no_upfront:.4f} per hour{savings_str}")
-                else:
-                    lines.append("  • No Upfront:             Not available")
-
-                if inst.pricing.ri_3yr_partial_upfront:
-                    savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_partial_upfront")
-                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
-                    lines.append(f"  • Partial Upfront:        ${inst.pricing.ri_3yr_partial_upfront:.4f} per hour{savings_str} *")
-                else:
-                    lines.append("  • Partial Upfront:        Not available")
-
-                if inst.pricing.ri_3yr_all_upfront:
-                    savings_ri = inst.pricing.calculate_savings_percentage("ri_3yr_all_upfront")
-                    savings_str = f" ({savings_ri:.1f}% savings)" if savings_ri else ""
-                    lines.append(f"  • All Upfront:            ${inst.pricing.ri_3yr_all_upfront:.4f} per hour{savings_str} *")
-                else:
-                    lines.append("  • All Upfront:            Not available")
-
-                # Add note about effective hourly rates
-                lines.append("")
-                lines.append("  * Effective hourly rate (includes prorated upfront payment)")
-            else:
-                lines.append("  • Pricing information:     Not loaded")
-                lines.append("  • (Pricing is fetched in the background)")
+            # Render sections using extracted helper methods
+            self._render_compute_section(inst, lines)
+            self._render_network_section(inst, lines)
+            self._render_storage_section(inst, lines)
+            self._render_pricing_section(inst, lines)
 
             detail_text = self.query_one("#detail-text", Static)
             detail_text.update("\n".join(lines))
