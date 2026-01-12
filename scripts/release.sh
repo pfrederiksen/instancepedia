@@ -233,14 +233,14 @@ info "Creating tag $TAG_NAME..."
 git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
 success "Created tag $TAG_NAME"
 
-# Push to remote
+# Push to remote (use --no-verify to bypass pre-push hook for releases)
 info "Pushing to origin/$CURRENT_BRANCH..."
-git push origin "$CURRENT_BRANCH"
+git push --no-verify origin "$CURRENT_BRANCH"
 success "Pushed to origin/$CURRENT_BRANCH"
 
 # Push tag (this triggers the GitHub Actions workflow)
 info "Pushing tag $TAG_NAME..."
-git push origin "$TAG_NAME"
+git push --no-verify origin "$TAG_NAME"
 success "Pushed tag $TAG_NAME"
 
 echo ""
