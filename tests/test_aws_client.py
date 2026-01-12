@@ -244,6 +244,21 @@ class TestEC2ClientProperty:
         with pytest.raises(AWSConnectionError, match="Failed to create EC2 client"):
             _ = client.ec2_client
 
+    @patch('src.services.aws_client.boto3.Session')
+    def test_ec2_client_generic_client_error(self, mock_session_class):
+        """Test EC2 client handles generic ClientError (not InvalidRegionName/UnauthorizedOperation)"""
+        # Setup mock session that raises a generic ClientError
+        mock_session = Mock()
+        error_response = {"Error": {"Code": "ServiceUnavailable", "Message": "Service temporarily unavailable"}}
+        mock_session.client.side_effect = ClientError(error_response, "CreateClient")
+        mock_session_class.return_value = mock_session
+
+        client = AWSClient(region="us-east-1")
+
+        # Should raise AWSConnectionError for generic client errors
+        with pytest.raises(AWSConnectionError, match="Failed to create EC2 client"):
+            _ = client.ec2_client
+
 
 class TestPricingClientProperty:
     """Test Pricing client lazy loading and caching"""
