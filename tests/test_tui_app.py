@@ -1,5 +1,6 @@
 """Tests for the main TUI application"""
 
+import asyncio
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 
@@ -405,3 +406,84 @@ class TestInstancepediaAppErrorHandling:
         assert app.push_screen.called
         # Verify pricing fetch was initiated
         assert app._fetch_pricing_background.called
+
+
+class TestInstancepediaAppPricingWorker:
+    """Tests for InstancepediaApp async pricing worker"""
+
+    @pytest.fixture
+    def app(self, mock_settings):
+        """Create app instance for testing"""
+        return InstancepediaApp(mock_settings, debug=False)
+
+
+    @pytest.mark.asyncio
+    @patch('src.app.AsyncAWSClient')
+    @patch('src.app.AsyncPricingService')
+    async def test_fetch_pricing_background_handles_shutdown(self, mock_pricing_service_class, mock_aws_client_class, app):
+        """Test _fetch_pricing_background handles app shutdown gracefully"""
+        mock_instance_list = Mock()
+        mock_instance_list.mark_pricing_loading = Mock()
+
+        # Set app as shutting down
+        app._shutting_down = True
+        app.current_region = "us-east-1"
+
+        # Call the method
+        app._fetch_pricing_background(mock_instance_list)
+
+        # Give async tasks time to run
+        await asyncio.sleep(0.1)
+
+        # Verify no AWS client was created when shutting down
+        assert not mock_aws_client_class.called
+
+
+    @pytest.mark.asyncio
+    async def test_retry_pricing_skips_when_shutting_down(self, app):
+        """Test _retry_pricing_for_instances skips when app is shutting down"""
+        mock_instance = Mock()
+        mock_instance.instance_type = "t3.micro"
+        mock_instance.pricing = None
+
+        mock_instance_list = Mock()
+        mock_instance_list.instance_types = [mock_instance]
+
+        # Set app as shutting down
+        app._shutting_down = True
+        app.current_region = "us-east-1"
+
+        with patch('src.app.AsyncAWSClient') as mock_client_class:
+            # Call _retry_pricing_for_instances
+            app._retry_pricing_for_instances(mock_instance_list, [mock_instance])
+
+            # Give async tasks time to run
+            await asyncio.sleep(0.1)
+
+            # Verify no client was created
+            assert not mock_client_class.called
+
+    @pytest.mark.asyncio
+    async def test_retry_pricing_with_no_failed_instances(self, app):
+        """Test _retry_pricing_for_instances with empty failed list"""
+        # Setup instance list with all successful pricing
+        from src.models.instance_type import PricingInfo
+
+        mock_instance = Mock()
+        mock_instance.instance_type = "t3.micro"
+        mock_instance.pricing = PricingInfo(on_demand_price=0.01)  # Has pricing
+
+        mock_instance_list = Mock()
+        mock_instance_list.instance_types = [mock_instance]
+
+        app.current_region = "us-east-1"
+
+        with patch('src.app.AsyncAWSClient') as mock_client_class:
+            # Call _retry_pricing_for_instances with empty list
+            app._retry_pricing_for_instances(mock_instance_list, [])
+
+            # Give async tasks time to run
+            await asyncio.sleep(0.1)
+
+            # Verify no retry was attempted since all instances have pricing
+            assert not mock_client_class.called
