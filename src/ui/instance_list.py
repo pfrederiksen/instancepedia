@@ -445,37 +445,69 @@ class InstanceList(Screen):
 
     def _apply_filters(self) -> None:
         """Apply search and attribute filters"""
-        free_tier_service = FreeTierService()
         filtered = self.all_instance_types
 
-        # Apply search filter
-        if self.search_term:
-            filtered = [
-                inst for inst in filtered
-                if self.search_term in inst.instance_type.lower()
-            ]
+        # Apply filters in phases
+        filtered = self._apply_search_filter(filtered)
+        filtered = self._apply_vcpu_filters(filtered)
+        filtered = self._apply_memory_filters(filtered)
+        filtered = self._apply_boolean_filters(filtered)
+        filtered = self._apply_processor_filters(filtered)
+        filtered = self._apply_network_filters(filtered)
+        filtered = self._apply_family_filter(filtered)
+        filtered = self._apply_storage_filters(filtered)
+        filtered = self._apply_price_filter(filtered)
 
-        # Apply backwards compatible free tier filter (deprecated)
-        if self.free_tier_filter:
-            filtered = [
-                inst for inst in filtered
-                if free_tier_service.is_eligible(inst.instance_type)
-            ]
+        self.filtered_instance_types = filtered
+        # Preserve expanded state when filtering
+        self._populate_tree()
 
-        # Apply advanced attribute filters
+    def _apply_search_filter(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply search term filter"""
+        if not self.search_term:
+            return instances
+
+        return [
+            inst for inst in instances
+            if self.search_term in inst.instance_type.lower()
+        ]
+
+    def _apply_vcpu_filters(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply vCPU min/max filters"""
+        filtered = instances
         criteria = self.filter_criteria
 
-        # vCPU filters
         if criteria.min_vcpu is not None:
             filtered = [inst for inst in filtered if inst.vcpu_info.default_vcpus >= criteria.min_vcpu]
         if criteria.max_vcpu is not None:
             filtered = [inst for inst in filtered if inst.vcpu_info.default_vcpus <= criteria.max_vcpu]
 
-        # Memory filters
+        return filtered
+
+    def _apply_memory_filters(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply memory min/max filters"""
+        filtered = instances
+        criteria = self.filter_criteria
+
         if criteria.min_memory_gb is not None:
             filtered = [inst for inst in filtered if inst.memory_info.size_in_gb >= criteria.min_memory_gb]
         if criteria.max_memory_gb is not None:
             filtered = [inst for inst in filtered if inst.memory_info.size_in_gb <= criteria.max_memory_gb]
+
+        return filtered
+
+    def _apply_boolean_filters(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply boolean filters: GPU, current generation, burstable, free tier"""
+        free_tier_service = FreeTierService()
+        filtered = instances
+        criteria = self.filter_criteria
+
+        # Backwards compatible free tier filter (deprecated)
+        if self.free_tier_filter:
+            filtered = [
+                inst for inst in filtered
+                if free_tier_service.is_eligible(inst.instance_type)
+            ]
 
         # GPU filter
         if criteria.gpu_filter == "yes":
@@ -500,6 +532,13 @@ class InstanceList(Screen):
             filtered = [inst for inst in filtered if free_tier_service.is_eligible(inst.instance_type)]
         elif criteria.free_tier == "no":
             filtered = [inst for inst in filtered if not free_tier_service.is_eligible(inst.instance_type)]
+
+        return filtered
+
+    def _apply_processor_filters(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply architecture and processor family filters"""
+        filtered = instances
+        criteria = self.filter_criteria
 
         # Architecture filter
         if criteria.architecture != "any":
@@ -530,28 +569,48 @@ class InstanceList(Screen):
                     if "arm64" in inst.processor_info.supported_architectures
                 ]
 
-        # Network performance filter
-        if criteria.network_performance != "any":
-            perf_map = {
-                "low": ["low", "very low", "up to 5 gigabit"],
-                "moderate": ["moderate", "up to 10 gigabit", "up to 12 gigabit"],
-                "high": ["high", "10 gigabit", "12 gigabit", "25 gigabit", "up to 25 gigabit"],
-                "very_high": ["50 gigabit", "100 gigabit", "200 gigabit", "up to 100 gigabit", "up to 200 gigabit"]
-            }
-            target_perfs = perf_map.get(criteria.network_performance, [])
-            filtered = [
-                inst for inst in filtered
-                if any(perf.lower() in inst.network_info.network_performance.lower() for perf in target_perfs)
-            ]
+        return filtered
 
-        # Family filter (comma-separated list)
-        if criteria.family_filter.strip():
-            families = [f.strip().lower() for f in criteria.family_filter.split(",") if f.strip()]
-            if families:
-                filtered = [
-                    inst for inst in filtered
-                    if any(extract_family_name(inst.instance_type).lower() == family for family in families)
-                ]
+    def _apply_network_filters(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply network performance filter"""
+        criteria = self.filter_criteria
+
+        if criteria.network_performance == "any":
+            return instances
+
+        perf_map = {
+            "low": ["low", "very low", "up to 5 gigabit"],
+            "moderate": ["moderate", "up to 10 gigabit", "up to 12 gigabit"],
+            "high": ["high", "10 gigabit", "12 gigabit", "25 gigabit", "up to 25 gigabit"],
+            "very_high": ["50 gigabit", "100 gigabit", "200 gigabit", "up to 100 gigabit", "up to 200 gigabit"]
+        }
+        target_perfs = perf_map.get(criteria.network_performance, [])
+
+        return [
+            inst for inst in instances
+            if any(perf.lower() in inst.network_info.network_performance.lower() for perf in target_perfs)
+        ]
+
+    def _apply_family_filter(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply instance family filter (comma-separated list)"""
+        criteria = self.filter_criteria
+
+        if not criteria.family_filter.strip():
+            return instances
+
+        families = [f.strip().lower() for f in criteria.family_filter.split(",") if f.strip()]
+        if not families:
+            return instances
+
+        return [
+            inst for inst in instances
+            if any(extract_family_name(inst.instance_type).lower() == family for family in families)
+        ]
+
+    def _apply_storage_filters(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply storage type and NVMe support filters"""
+        filtered = instances
+        criteria = self.filter_criteria
 
         # Storage type filter
         if criteria.storage_type == "ebs_only":
@@ -573,27 +632,30 @@ class InstanceList(Screen):
         elif criteria.nvme_support == "unsupported":
             filtered = [inst for inst in filtered if not inst.instance_storage_info or not inst.instance_storage_info.nvme_support or inst.instance_storage_info.nvme_support == "unsupported"]
 
-        # Price range filter (only filter instances with pricing data)
-        if criteria.min_price is not None or criteria.max_price is not None:
-            def matches_price_range(inst):
-                # Only filter instances that have pricing data
-                if not inst.pricing or inst.pricing.on_demand_price is None:
-                    # Keep instances without pricing if we're filtering by price
-                    # (they might get priced later)
-                    return True
+        return filtered
 
-                price = inst.pricing.on_demand_price
-                if criteria.min_price is not None and price < criteria.min_price:
-                    return False
-                if criteria.max_price is not None and price > criteria.max_price:
-                    return False
+    def _apply_price_filter(self, instances: list[InstanceType]) -> list[InstanceType]:
+        """Apply price range filter (only filters instances with pricing data)"""
+        criteria = self.filter_criteria
+
+        if criteria.min_price is None and criteria.max_price is None:
+            return instances
+
+        def matches_price_range(inst):
+            # Only filter instances that have pricing data
+            if not inst.pricing or inst.pricing.on_demand_price is None:
+                # Keep instances without pricing if we're filtering by price
+                # (they might get priced later)
                 return True
 
-            filtered = [inst for inst in filtered if matches_price_range(inst)]
+            price = inst.pricing.on_demand_price
+            if criteria.min_price is not None and price < criteria.min_price:
+                return False
+            if criteria.max_price is not None and price > criteria.max_price:
+                return False
+            return True
 
-        self.filtered_instance_types = filtered
-        # Preserve expanded state when filtering
-        self._populate_tree()
+        return [inst for inst in instances if matches_price_range(inst)]
 
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         """Handle tree node selection - navigate to detail view if it's an instance"""
